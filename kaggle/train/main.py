@@ -1,4 +1,4 @@
-import json, os, sys, subprocess, yaml
+import json, os, shutil, subprocess, sys, yaml
 
 subprocess.run(
     [
@@ -59,10 +59,29 @@ for epoch in range(num_epochs):
             f"/kaggle/working/checkpoints/dana_epoch_{epoch + 1}.pt"
         )
 
-import kagglehub
-
-kagglehub.upload_dataset(
-    "/kaggle/working/checkpoints",
-    "elfateh/dana-checkpoints",
-    message=f"DANA checkpoints after {num_epochs} epochs",
+os.makedirs("/kaggle/working/dana-checkpoints", exist_ok=True)
+shutil.copy(
+    f"/kaggle/working/checkpoints/dana_epoch_{num_epochs}.pt",
+    "/kaggle/working/dana-checkpoints/",
+)
+with open("/kaggle/working/dana-checkpoints/dataset-metadata.json", "w") as f:
+    json.dump(
+        {
+            "title": "dana-checkpoints",
+            "id": "elfateh/dana-checkpoints",
+            "licenses": [{"name": "CC0-1.0"}],
+        },
+        f,
+    )
+subprocess.run(
+    [
+        "kaggle",
+        "datasets",
+        "create",
+        "-p",
+        "/kaggle/working/dana-checkpoints",
+        "--dir-mode",
+        "zip",
+    ],
+    check=True,
 )
