@@ -135,6 +135,8 @@ class POMOTrainer:
         log_probs_list = []
         rewards_list = []
         for vehicle_idx in range(self.cfg["environment"]["max_vehicles"]):
+            if visited.all():
+                break
             vehicle_state = torch.zeros(B, 3, device=self.device)
             vehicle_state[:, 2] = 0.0
             for step in range(N * 2):
