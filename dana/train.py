@@ -140,18 +140,17 @@ class POMOTrainer:
             vehicle_state = torch.zeros(B, 3, device=self.device)
             vehicle_state[:, 2] = 0.0
             for step in range(N * 2):
-                with torch.no_grad():
-                    logits = self.policy(
-                        coords,
-                        dist_mat,
-                        dur_mat,
-                        depot_mask,
-                        demand,
-                        tw_start,
-                        tw_end,
-                        visited_mask=visited,
-                        return_logits=True,
-                    )
+                logits = self.policy(
+                    coords,
+                    dist_mat,
+                    dur_mat,
+                    depot_mask,
+                    demand,
+                    tw_start,
+                    tw_end,
+                    visited_mask=visited,
+                    return_logits=True,
+                )
                 mask = visited
                 logits = logits.masked_fill(mask, float("-inf"))
                 probs = torch.softmax(logits / 0.1, dim=-1)
