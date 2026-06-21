@@ -96,7 +96,7 @@ def city_to_tensor_dict(
     tw_start[tw_start > tw_end] = 0
 
     return {
-        "points": points,
+        "coords": points,
         "distance_matrix": dist_mat,
         "duration_matrix": dur_mat,
         "depot_mask": depot_mask,

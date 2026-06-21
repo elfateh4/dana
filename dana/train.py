@@ -120,7 +120,7 @@ class POMOTrainer:
         B = batch_size
         N = num_loc + num_depots
         D = self.cfg["model"]["embedding_dim"]
-        coords = instance["points"].unsqueeze(0).expand(B, -1, -1).to(self.device)
+        coords = instance["coords"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         dist_mat = (
             instance["distance_matrix"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         )
