@@ -118,7 +118,7 @@ class POMOTrainer:
             instance = city_to_tensor_dict(city, num_loc, num_depots)
         self.env.reset(instance)
         B = batch_size
-        N = num_loc + num_depots
+        N = instance["coords"].size(0)
         D = self.cfg["model"]["embedding_dim"]
         coords = instance["coords"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         dist_mat = (
