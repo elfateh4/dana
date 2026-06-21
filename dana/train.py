@@ -33,7 +33,7 @@ def synthetic_city_to_tensor_dict(
     tw_start = torch.zeros(num_locations, dtype=torch.float)
     tw_end = torch.full((num_locations,), 480.0, dtype=torch.float)
     return {
-        "points": points,
+        "coords": points,
         "distance_matrix": dist_mat,
         "duration_matrix": dur_mat,
         "depot_mask": depot_mask,
