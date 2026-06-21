@@ -37,6 +37,8 @@ cfg["training"]["num_epochs"] = min(cfg["training"]["num_epochs"], 10)
 cfg["training"]["instances_per_epoch"] = min(
     cfg["training"]["instances_per_epoch"], 5000
 )
+cfg["training"]["batch_size"] = min(cfg["training"]["batch_size"], 8)
+cfg["model"]["num_encoder_layers"] = min(cfg["model"]["num_encoder_layers"], 6)
 
 from dana.train import build_policy, POMOTrainer
 
