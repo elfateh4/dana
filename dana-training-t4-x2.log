@@ -1,0 +1,27 @@
+[{"stream_name":"stdout","time":3.867558755,"data":"     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 64.4/64.4 kB 931.7 kB/s eta 0:00:00\n"}
+,{"stream_name":"stdout","time":4.798145917,"data":"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.2/12.2 MB 54.1 MB/s eta 0:00:00\n"}
+,{"stream_name":"stdout","time":4.869865564,"data":"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 66.6 MB/s eta 0:00:00\n"}
+,{"stream_name":"stderr","time":8.507451135,"data":"ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.\n"}
+,{"stream_name":"stderr","time":8.507494551,"data":"dask-cuda 26.2.0 requires cuda-core==0.3.*, but you have cuda-core 1.0.1 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.507500688,"data":"dask-cuda 26.2.0 requires numba-cuda\u003c0.23.0,\u003e=0.22.1, but you have numba-cuda 0.30.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.50751103,"data":"distributed-ucxx-cu12 0.48.0 requires numba-cuda[cu12]\u003c0.23.0,\u003e=0.22.1, but you have numba-cuda 0.30.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.507514619,"data":"cuml-cu12 26.2.0 requires numba\u003c0.62.0,\u003e=0.60.0, but you have numba 0.65.1 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.507518149,"data":"cuml-cu12 26.2.0 requires numba-cuda[cu12]\u003c0.23.0,\u003e=0.22.1, but you have numba-cuda 0.30.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.507521588,"data":"ucxx-cu12 0.48.0 requires numba-cuda[cu12]\u003c0.23.0,\u003e=0.22.1, but you have numba-cuda 0.30.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.50752482,"data":"cudf-cu12 26.2.1 requires numba\u003c0.62.0,\u003e=0.60.0, but you have numba 0.65.1 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.50752806,"data":"cudf-cu12 26.2.1 requires numba-cuda[cu12]\u003c0.23.0,\u003e=0.22.2, but you have numba-cuda 0.30.2 which is incompatible.\n"}
+,{"stream_name":"stderr","time":8.606372848,"data":"Cloning into '/kaggle/working/dana'...\n"}
+,{"stream_name":"stderr","time":9.124057099,"data":"fatal: could not read Username for 'https://github.com': No such device or address\n"}
+,{"stream_name":"stderr","time":9.130816287,"data":"Traceback (most recent call last):\n"}
+,{"stream_name":"stderr","time":9.130843885,"data":"  File \"/kaggle/src/script.py\", line 26, in \u003cmodule\u003e\n"}
+,{"stream_name":"stderr","time":9.130980628,"data":"    subprocess.run([\"git\", \"clone\", REPO, REPO_DIR], check=True)\n"}
+,{"stream_name":"stderr","time":9.131047502,"data":"  File \"/usr/lib/python3.12/subprocess.py\", line 571, in run\n"}
+,{"stream_name":"stderr","time":9.132711672,"data":"    raise CalledProcessError(retcode, process.args,\n"}
+,{"stream_name":"stderr","time":9.13272987,"data":"subprocess.CalledProcessError: Command '['git', 'clone', 'https://github.com/elfateh4/dana.git', '/kaggle/working/dana']' returned non-zero exit status 128.\n"}
+,{"stream_name":"stderr","time":11.186110358,"data":"/usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":11.186143781,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":11.451726158,"data":"/usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":11.451756405,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":12.17731497,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":13.433749551,"data":"[NbConvertApp] Writing 280899 bytes to __results__.html\n"}
+]

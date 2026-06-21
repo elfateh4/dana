@@ -6,7 +6,7 @@ subprocess.run(
         "pip",
         "install",
         "-q",
-        "torch",
+        "torch==2.3.1",
         "torch-geometric",
         "numpy",
         "scipy",
@@ -26,7 +26,10 @@ subprocess.run(
 REPO = "https://github.com/elfateh4/dana.git"
 REPO_DIR = "/kaggle/working/dana"
 if not os.path.exists(REPO_DIR):
-    subprocess.run(["git", "clone", REPO, REPO_DIR], check=True)
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
+    subprocess.run(
+        ["git", "clone", "--depth", "1", REPO, REPO_DIR], check=True, env=env
+    )
 os.chdir(REPO_DIR)
 sys.path.insert(0, REPO_DIR)
 sys.path.insert(0, "/kaggle/input/dana-checkpoints")

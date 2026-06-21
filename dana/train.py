@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import yaml
@@ -13,6 +14,35 @@ from dana.models.context import DynamicContext
 from dana.models.policy import RouteDecoder, DisasterPolicy
 from dana.envs.mdvrptw_env import DisasterMDVRPTWEnv
 from dana.data.osm_loader import get_city_lists, city_to_tensor_dict
+
+
+def synthetic_city_to_tensor_dict(
+    num_locations: int, num_depots: int = 1, rng=None
+) -> dict:
+    if rng is None:
+        rng = np.random.default_rng()
+    points = torch.tensor(rng.uniform(0, 1, (num_locations, 2)), dtype=torch.float)
+    coords = points.numpy()
+    diff = coords[:, None] - coords[None, :]
+    dist = np.sqrt((diff**2).sum(axis=-1))
+    dist_mat = torch.tensor(dist, dtype=torch.float)
+    dur_mat = dist_mat.clone()
+    depot_mask = torch.zeros(num_locations, dtype=torch.bool)
+    depot_mask[:num_depots] = True
+    demand = torch.tensor(rng.uniform(1, 10, (num_locations,)), dtype=torch.float)
+    tw_start = torch.zeros(num_locations, dtype=torch.float)
+    tw_end = torch.full((num_locations,), 480.0, dtype=torch.float)
+    return {
+        "points": points,
+        "distance_matrix": dist_mat,
+        "duration_matrix": dur_mat,
+        "depot_mask": depot_mask,
+        "demand": demand,
+        "tw_start": tw_start,
+        "tw_end": tw_end,
+        "num_depots": torch.tensor(num_depots),
+        "num_locations": torch.tensor(num_locations),
+    }
 
 
 def load_config(config_path: str = "configs/dana.yaml") -> dict:
@@ -52,8 +82,14 @@ class POMOTrainer:
             weight_decay=cfg["training"]["weight_decay"],
         )
         self.env = DisasterMDVRPTWEnv()
-        train_cities, _ = get_city_lists()
-        self.train_cities = train_cities
+        try:
+            train_cities, _ = get_city_lists()
+            self.train_cities = train_cities
+            self.synthetic_mode = False
+        except (FileNotFoundError, json.JSONDecodeError):
+            print("City data not found — using synthetic instances")
+            self.train_cities = None
+            self.synthetic_mode = True
         self.num_starts = cfg["pomo"]["num_starts"]
         self.num_aug = cfg["pomo"]["num_augmentations"]
 
@@ -75,8 +111,11 @@ class POMOTrainer:
         batch_size = self.cfg["training"]["batch_size"]
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
-        city = np.random.choice(self.train_cities)
-        instance = city_to_tensor_dict(city, num_loc, num_depots)
+        if self.synthetic_mode:
+            instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
+        else:
+            city = np.random.choice(self.train_cities)
+            instance = city_to_tensor_dict(city, num_loc, num_depots)
         self.env.reset(instance)
         B = batch_size
         N = num_loc + num_depots
