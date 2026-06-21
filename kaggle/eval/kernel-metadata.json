@@ -1,0 +1,19 @@
+{
+  "id": "elfateh/dana-eval",
+  "title": "DANA Evaluation (all baselines)",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "n1-highmem-2",
+  "dataset_sources": [
+    "elfateh/dana-benchmarks",
+    "elfateh/dana-checkpoints"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

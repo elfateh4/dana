@@ -1,0 +1,101 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{DANA: Disaster-Aware Neural Algorithm for Humanitarian Logistics Routing}
+\author{Ahmed AbdelBadie Ahmed}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present DANA, a pure neural model for dynamic multi-depot vehicle routing with time windows (MDVRPTW) under spatial disaster conditions. DANA integrates three key innovations from the neural combinatorial optimization (NCO) literature: a real-world road network encoder from RRNCO, dynamic context understanding from CCL, and a multi-depot decoder from RouteFinder, trained with POMO reinforcement learning. Unlike prior work that relies on synthetic Euclidean data, DANA operates on asymmetric distance and duration matrices from OpenStreetMap road networks. The model is trained with a humanitarian reward function derived from Chapter 14 of the VRP book, optimizing response time, demand satisfaction, and equity. We evaluate DANA on six benchmarks following the Guidelines paper methodology, comparing against HGS, LKH-3, PyVRP, and OR-Tools with Wilcoxon signed-rank tests, Bonferroni correction, and PassMark time normalization.
+\end{abstract}
+
+\section{Introduction}
+
+Logistics distribution during spatial disasters requires quick, well-organized intervention where decisions must account for highly dynamic parameters. The problem can be formulated as a dynamic multi-depot vehicle routing problem with time windows (MDVRPTW) where new demands and constraints emerge in real-time.
+
+Geographic Information Systems (GIS) are essential for capturing road network topology, but existing NCO methods are trained on simplified Euclidean data that does not reflect real-world routing conditions. This paper proposes DANA, bridging this gap.
+
+\section{Related Work}
+
+\subsection{Neural Combinatorial Optimization}
+The NCO literature spans constructive methods \cite{am2019}, improvement methods, and diffusion-based approaches. However, as noted by \cite{frontierco2026}, ML solvers drop from 0.72\% gap on standard TSP to 10-77\% on real-world instances, highlighting the generalization crisis.
+
+\subsection{GIS-Aware Routing}
+RRNCO \cite{rrnco2026} introduced the first real-world NCO dataset using OSM/OSRM, providing asymmetric distance and duration matrices across 100 cities. Their encoder architecture (ANE, NAB, AAFM) processes real-world road network features.
+
+\subsection{Dynamic Constraints}
+CCL \cite{ccl2026} introduced step-wise context understanding through RGCR and TSNR modules that can handle dynamic constraint changes during route construction.
+
+\subsection{Humanitarian Logistics}
+Chapter 14 of the VRP book \cite{vrpbook} establishes that disaster routing requires different objectives than commercial VRP: response time, demand satisfaction, and equity take precedence over tour cost minimization.
+
+\section{DANA Architecture}
+
+\subsection{Encoder}
+The encoder transforms OSM road network coordinates and asymmetric distance matrices into node embeddings. Following RRNCO, it uses:
+\begin{itemize}
+    \item \textbf{Contextual gating}: Distance-aware bias injection
+    \item \textbf{Neural adaptive bias}: Learnable attention modulation
+    \item \textbf{Adaptive attention fusion}: Multi-head self-attention
+\end{itemize}
+
+\subsection{Dynamic Context}
+The context module handles disaster events through:
+\begin{itemize}
+    \item \textbf{RGCR}: Relational graph context refiner for structural updates
+    \item \textbf{TSNR}: Temporal step-wise network refiner for sequential decisions
+\end{itemize}
+
+\subsection{Decoder}
+The decoder autoregressively constructs routes following the RouteFinder MDVRPTW formulation. At each step, it selects the next customer using attention over encoded node embeddings and context.
+
+\subsection{Humanitarian Reward}
+The reward function combines four terms:
+\[
+R = \alpha \cdot R_{\text{response}} + \beta \cdot R_{\text{satisfaction}} + \gamma \cdot R_{\text{equity}} - \delta \cdot P_{\text{violation}}
+\]
+
+Where:
+\begin{itemize}
+    \item $R_{\text{response}} = e^{-t / T}$: exponential time penalty
+    \item $R_{\text{satisfaction}} = \sum \text{served} / \sum \text{demand}$
+    \item $R_{\text{equity}} = 1 - \text{Var}(\text{served})$
+    \item $P_{\text{violation}}$: time window violation cost
+\end{itemize}
+
+\section{Training}
+
+We train DANA with POMO (Policy Optimization with Multiple Optima) using REINFORCE gradient estimation. Training is performed on RRNCO's OSM dataset with 80 training cities and 20 test cities, subsampling 100 locations per instance.
+
+\section{Evaluation}
+
+Following the Guidelines paper \cite{guidelines2021}, we evaluate on:
+
+\begin{itemize}
+    \item Cordeau MDVRPTW instances (standard benchmark)
+    \item Solomon VRPTW instances (single-depot, not converted)
+    \item Gehring \& Homberger VRPTW instances (large-scale)
+    \item X instances from CVRPLIB (capacitated VRP)
+    \item RRNCO 100-city OSM dataset (real-world asymmetric)
+    \item Custom Cairo/Nile Delta disaster benchmark
+\end{itemize}
+
+Baselines: HGS, LKH-3, PyVRP, OR-Tools.
+
+Statistical tests: Wilcoxon signed-rank, Bonferroni correction, PassMark normalization.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
