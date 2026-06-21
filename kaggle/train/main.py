@@ -33,12 +33,14 @@ sys.path.insert(0, REPO_DIR)
 with open("configs/dana.yaml") as f:
     cfg = yaml.safe_load(f)
 
-cfg["training"]["num_epochs"] = min(cfg["training"]["num_epochs"], 10)
-cfg["training"]["instances_per_epoch"] = min(
-    cfg["training"]["instances_per_epoch"], 5000
-)
-cfg["training"]["batch_size"] = min(cfg["training"]["batch_size"], 8)
-cfg["model"]["num_encoder_layers"] = min(cfg["model"]["num_encoder_layers"], 6)
+cfg["training"]["num_epochs"] = 3
+cfg["training"]["instances_per_epoch"] = 32
+cfg["training"]["batch_size"] = 2
+cfg["model"]["embedding_dim"] = 64
+cfg["model"]["num_encoder_layers"] = 3
+cfg["model"]["num_heads"] = 4
+cfg["model"]["feedforward_dim"] = 128
+cfg["data"]["num_locations"] = 20
 
 from dana.train import build_policy, POMOTrainer
 
