@@ -124,7 +124,7 @@ class POMOTrainer:
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
         max_vehicles = self.cfg["environment"]["max_vehicles"]
-        entropy_beta = self.cfg["training"].get("entropy_beta", 0.01)
+        entropy_beta = self.cfg["training"].get("entropy_beta", 0.0001)
         if self.synthetic_mode:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
@@ -312,10 +312,13 @@ class POMOTrainer:
                     )
                     ** 0.5
                 )
+                clip_val = self.policy.decoder.logit_clip.item()
+                temp_val = self.policy.decoder.logit_temperature.item()
             print(
                 f"  [debug] cost: mean={cost.mean().item():.4f} std={cost_std:.4f} "
                 f"| adv: [{adv_min:.6f}, {adv_max:.6f}] "
                 f"| ent={cum_ent / T:.4f} | loss={loss_val:.10f} | grad_norm={grad_norm:.6f}"
+                f" | clip={clip_val:.2f} temp={temp_val:.2f}"
             )
         if not math.isfinite(loss_val):
             print(f"  WARNING: non-finite loss {loss_val}, skipping batch")

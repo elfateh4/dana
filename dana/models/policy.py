@@ -86,8 +86,10 @@ class RouteDecoder(nn.Module):
 
         # Learnable temperature & clipping (instead of hardcoded 10*tanh)
         # Initialized to produce similar behavior as 10*tanh at start
+        # min_clip prevents entropy regularization from collapsing logits to zero
         self.logit_clip = nn.Parameter(torch.tensor(10.0))
         self.logit_temperature = nn.Parameter(torch.tensor(1.0))
+        self.logit_clip_min = 0.5
 
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -134,8 +136,9 @@ class RouteDecoder(nn.Module):
         logits = logits / math.sqrt(D)
 
         # Learnable clipping with temperature scaling
-        clip = F.softplus(self.logit_clip)  # always positive, ~10 at init
-        temperature = F.softplus(self.logit_temperature) + 0.1  # min 0.1
+        # logit_clip_min floor prevents entropy reg from collapsing output to zero
+        clip = F.softplus(self.logit_clip).clamp(min=self.logit_clip_min)  # ~10 at init
+        temperature = F.softplus(self.logit_temperature).clamp(min=0.1)  # min 0.1
         logits = clip * torch.tanh(logits / temperature)
 
         # Apply mask (visited nodes, capacity violations, etc.)

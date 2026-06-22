@@ -50,10 +50,11 @@ with open("configs/dana.yaml") as f:
 cfg["training"]["num_epochs"] = 10
 cfg["training"]["instances_per_epoch"] = 400
 cfg["training"]["batch_size"] = 4
-cfg["pomo"]["num_starts"] = 4
+cfg["pomo"]["num_starts"] = 8
 cfg["model"]["num_encoder_layers"] = 4
 cfg["model"]["num_decoder_layers"] = 2
 cfg["model"]["feedforward_dim"] = 256
+cfg["training"]["entropy_beta"] = 0.0001
 cfg["data"]["num_locations"] = 50
 
 from dana.train import build_policy, POMOTrainer
