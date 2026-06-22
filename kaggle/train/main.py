@@ -1,6 +1,19 @@
 import json, os, shutil, subprocess, sys, yaml
 import torch
 
+# Install PyTorch with CUDA 11.8 (supports P100/Tesla sm_60 which Kaggle often allocates)
+subprocess.run(
+    [
+        "pip",
+        "install",
+        "-q",
+        "torch",
+        "--index-url",
+        "https://download.pytorch.org/whl/cu118",
+        "--force-reinstall",
+    ],
+    check=True,
+)
 subprocess.run(
     [
         "pip",
