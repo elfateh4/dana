@@ -47,11 +47,15 @@ sys.path.insert(0, REPO_DIR)
 with open("configs/dana.yaml") as f:
     cfg = yaml.safe_load(f)
 
-cfg["training"]["num_epochs"] = 10
+cfg["training"]["num_epochs"] = 50
 cfg["training"]["instances_per_epoch"] = 4000
 cfg["training"]["batch_size"] = 16
 cfg["training"]["max_grad_norm"] = 5.0
 cfg["pomo"]["num_starts"] = 45
+cfg["model"]["num_encoder_layers"] = 4
+cfg["model"]["num_decoder_layers"] = 2
+cfg["model"]["feedforward_dim"] = 256
+cfg["data"]["num_locations"] = 50
 cfg["model"]["num_encoder_layers"] = 4
 cfg["model"]["num_decoder_layers"] = 2
 cfg["model"]["feedforward_dim"] = 256
