@@ -1,4 +1,3 @@
-import json
 import math
 import os
 import time
@@ -7,14 +6,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dana.models.encoder import GraphEncoder
 from dana.models.context import DynamicContext
 from dana.models.policy import RouteDecoder, DisasterPolicy
 from dana.envs.mdvrptw_env import DisasterMDVRPTWEnv
-from dana.data.osm_loader import get_city_lists, city_to_tensor_dict
+from dana.data.osm_loader import CityRotation, city_to_tensor_dict, get_city_lists
 
 
 def synthetic_city_to_tensor_dict(
@@ -66,6 +64,7 @@ def build_policy(cfg: dict) -> DisasterPolicy:
     decoder = RouteDecoder(
         embedding_dim=cfg["model"]["embedding_dim"],
         num_heads=cfg["model"]["num_heads"],
+        num_layers=cfg["model"].get("num_decoder_layers", 3),
     )
     return DisasterPolicy(
         encoder, context_module, decoder, embedding_dim=cfg["model"]["embedding_dim"]
@@ -83,13 +82,21 @@ class POMOTrainer:
             weight_decay=cfg["training"]["weight_decay"],
         )
         self.env = DisasterMDVRPTWEnv()
+        # Set up city rotation. Falls back to synthetic if no OSM data available.
         try:
-            train_cities, _ = get_city_lists()
-            self.train_cities = train_cities
-            self.synthetic_mode = False
-        except (FileNotFoundError, json.JSONDecodeError):
-            print("City data not found — using synthetic instances")
-            self.train_cities = None
+            self.city_rotation = CityRotation(
+                data_root=cfg["paths"].get("osm_cache", "data/osm_cache")
+            )
+            if self.city_rotation.available_count() > 0:
+                print(
+                    f"OSM city rotation: {self.city_rotation.available_count()} cities available"
+                )
+                self.synthetic_mode = False
+            else:
+                print("No OSM city data found — using synthetic instances")
+                self.synthetic_mode = True
+        except Exception as e:
+            print(f"City rotation init failed — using synthetic instances: {e}")
             self.synthetic_mode = True
         self.num_starts = cfg["pomo"]["num_starts"]
         self.num_aug = cfg["pomo"]["num_augmentations"]
@@ -106,6 +113,9 @@ class POMOTrainer:
             batch_loss = self._train_batch(debug=(batch_idx == 0))
             total_loss += batch_loss
             pbar.set_postfix(loss=batch_loss)
+        # Advance city rotation for next epoch (if using OSM data)
+        if not self.synthetic_mode:
+            self.city_rotation.next_epoch()
         return total_loss / num_batches
 
     def _train_batch(self, debug: bool = False) -> float:
@@ -118,8 +128,14 @@ class POMOTrainer:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
             try:
-                city = np.random.choice(self.train_cities)
-                instance = city_to_tensor_dict(city, num_loc, num_depots)
+                # Use deterministic city rotation (different city each epoch)
+                city = self.city_rotation.get_city()
+                instance = city_to_tensor_dict(
+                    city,
+                    num_loc,
+                    num_depots,
+                    data_root=self.cfg["paths"].get("osm_cache", "data/osm_cache"),
+                )
             except (FileNotFoundError, OSError):
                 print("City data load failed — falling back to synthetic")
                 self.synthetic_mode = True

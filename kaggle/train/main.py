@@ -37,6 +37,7 @@ cfg["training"]["num_epochs"] = 10
 cfg["training"]["instances_per_epoch"] = 800
 cfg["training"]["batch_size"] = 16
 cfg["model"]["num_encoder_layers"] = 4
+cfg["model"]["num_decoder_layers"] = 2
 cfg["model"]["feedforward_dim"] = 256
 cfg["data"]["num_locations"] = 50
 

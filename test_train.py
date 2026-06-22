@@ -16,7 +16,9 @@ def build_policy(cfg):
     )
     context_module = DynamicContext(embedding_dim=cfg["model"]["embedding_dim"])
     decoder = RouteDecoder(
-        embedding_dim=cfg["model"]["embedding_dim"], num_heads=cfg["model"]["num_heads"]
+        embedding_dim=cfg["model"]["embedding_dim"],
+        num_heads=cfg["model"]["num_heads"],
+        num_layers=cfg["model"].get("num_decoder_layers", 3),
     )
     return DisasterPolicy(
         encoder, context_module, decoder, embedding_dim=cfg["model"]["embedding_dim"]
