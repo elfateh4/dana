@@ -102,13 +102,13 @@ class POMOTrainer:
             // self.cfg["training"]["batch_size"]
         )
         pbar = tqdm(range(num_batches), desc="Training")
-        for _ in pbar:
-            batch_loss = self._train_batch()
+        for batch_idx in pbar:
+            batch_loss = self._train_batch(debug=(batch_idx == 0))
             total_loss += batch_loss
             pbar.set_postfix(loss=batch_loss)
         return total_loss / num_batches
 
-    def _train_batch(self) -> float:
+    def _train_batch(self, debug: bool = False) -> float:
         B = self.cfg["training"]["batch_size"]
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
@@ -161,7 +161,7 @@ class POMOTrainer:
                     torch.zeros_like(logits),
                     logits,
                 )
-                probs = torch.softmax(logits / 0.1, dim=-1)
+                probs = torch.softmax(logits, dim=-1)
                 m = torch.distributions.Categorical(probs)
                 actions = m.sample()
                 log_probs = m.log_prob(actions)
@@ -201,6 +201,27 @@ class POMOTrainer:
         )
         self.optimizer.step()
         loss_val = loss.item()
+        if debug:
+            with torch.no_grad():
+                logp_max = log_probs.max().item()
+                logp_min = log_probs.min().item()
+                cost_std = cost.std().item()
+                adv_max = advantage.max().item()
+                adv_min = advantage.min().item()
+                grad_norm = (
+                    sum(
+                        p.grad.norm().item() ** 2
+                        for p in self.policy.parameters()
+                        if p.grad is not None
+                    )
+                    ** 0.5
+                )
+            print(
+                f"  [debug] cost: mean={cost.mean().item():.4f} std={cost_std:.4f} "
+                f"| adv: [{adv_min:.6f}, {adv_max:.6f}] "
+                f"| logp: [{logp_min:.4f}, {logp_max:.4f}] "
+                f"| loss={loss_val:.8f} | grad_norm={grad_norm:.4f}"
+            )
         if not math.isfinite(loss_val):
             print(f"  WARNING: non-finite loss {loss_val}, skipping batch")
         return loss_val

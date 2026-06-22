@@ -51,7 +51,7 @@ num_epochs = cfg["training"]["num_epochs"]
 
 for epoch in range(num_epochs):
     loss = trainer.train_epoch()
-    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}")
+    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.6f}")
     if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
         trainer.save_checkpoint(
             f"/kaggle/working/checkpoints/dana_epoch_{epoch + 1}.pt"
