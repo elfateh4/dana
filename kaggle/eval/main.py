@@ -43,12 +43,30 @@ with open("configs/dana.yaml") as f:
 
 HGS_BIN = "/usr/local/bin/HGS-CVRP"
 if not os.path.exists(HGS_BIN):
-    subprocess.run(
-        ["git", "clone", "https://github.com/vidalt/HGS-CVRP.git", "/tmp/HGS-CVRP"],
-        check=True,
-    )
-    subprocess.run(["make", "-C", "/tmp/HGS-CVRP"], check=True)
-    subprocess.run(["cp", "/tmp/HGS-CVRP/HGS-CVRP", HGS_BIN], check=True)
+    try:
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "https://github.com/vidalt/HGS-CVRP.git",
+                "/tmp/HGS-CVRP",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["cmake", "-S", "/tmp/HGS-CVRP", "-B", "/tmp/HGS-CVRP/build"],
+            check=True,
+        )
+        subprocess.run(
+            ["make", "-C", "/tmp/HGS-CVRP/build", "-j$(nproc)"],
+            check=True,
+            shell=True,
+        )
+        subprocess.run(["cp", "/tmp/HGS-CVRP/build/HGS-CVRP", HGS_BIN], check=True)
+    except Exception as e:
+        print(f"HGS-CVRP install failed (non-critical): {e}")
 
 LKH_BIN = "/usr/local/bin/LKH-3"
 if not os.path.exists(LKH_BIN):
