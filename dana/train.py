@@ -124,7 +124,6 @@ class POMOTrainer:
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
         max_vehicles = self.cfg["environment"]["max_vehicles"]
-        entropy_beta = self.cfg["training"].get("entropy_beta", 0.0001)
         if self.synthetic_mode:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
@@ -164,13 +163,6 @@ class POMOTrainer:
             .reshape(B * K, N)
             .to(self.device)
         )
-        tw_start = (
-            instance["tw_start"]
-            .unsqueeze(0)
-            .expand(B, K, -1)
-            .reshape(B * K, N)
-            .to(self.device)
-        )
         tw_end = (
             instance["tw_end"]
             .unsqueeze(0)
@@ -180,125 +172,81 @@ class POMOTrainer:
         )
         D = self.cfg["model"]["embedding_dim"]
         # ------------------------------------------------------------
-        # Phase 1: collect trajectory (no grad) — cache encoder output
+        # Single forward pass with grad: encoder once, decoder all steps
         # ------------------------------------------------------------
-        with torch.no_grad():
-            enc_out = self.policy.encoder(coords, dist_mat)  # [B*K, N, D]
-            enc_out, ctx = self.policy.context_module(
-                enc_out, dist_mat, torch.zeros(B * K, D, device=self.device)
-            )
-            visited = depot_mask_flat.clone()
-            start_offset = num_depots
-            start_nodes = (
-                torch.arange(K, device=self.device).repeat(B) + start_offset
-            ).clamp(max=N - 1)
-            actions_list = []
-            traj_done = torch.zeros(B * K, dtype=torch.bool, device=self.device)
-            first_step = True
-            for _ in range(max_vehicles):
+        self.optimizer.zero_grad()
+        enc_out = self.policy.encoder(coords, dist_mat)  # [B*K, N, D]
+        enc_out, ctx = self.policy.context_module(
+            enc_out, dist_mat, torch.zeros(B * K, D, device=self.device)
+        )
+        visited = depot_mask_flat.clone()
+        start_offset = num_depots
+        num_customers = N - num_depots
+        start_nodes = (torch.arange(K, device=self.device).repeat(B) + start_offset) % N
+        start_nodes = start_nodes.clamp(min=num_depots, max=N - 1)
+        log_probs_list = []
+        actions_list = []
+        traj_done = torch.zeros(B * K, dtype=torch.bool, device=self.device)
+        first_step = True
+        for _ in range(max_vehicles):
+            if traj_done.all():
+                break
+            for _ in range(N * 2):
                 if traj_done.all():
                     break
-                for _ in range(N * 2):
-                    if traj_done.all():
-                        break
-                    visit_frac = visited.float().mean(dim=-1)
-                    remaining_cap = 1.0 - (demand.float().mean(dim=-1) * visit_frac)
-                    unvisited_tw_end = tw_end.float().masked_fill(visited, float("inf"))
-                    min_tw_end = unvisited_tw_end.min(dim=-1).values
-                    max_tw_end = unvisited_tw_end.max(dim=-1).values
-                    tw_urgency = 1.0 - (min_tw_end / (max_tw_end + 1e-8))
-                    unvisited_count = (~visited).float().sum(dim=-1) / N
-                    vs = torch.stack(
-                        [visit_frac, remaining_cap, tw_urgency, unvisited_count], dim=-1
-                    )
-                    vf = self.policy.vehicle_embedding(vs)
-                    logits = self.policy.decoder(enc_out, ctx, vf, mask=visited)
-                    logits = logits.masked_fill(visited, float("-inf"))
-                    m = torch.distributions.Categorical(logits=logits)
-                    if first_step:
-                        actions = start_nodes
-                        first_step = False
-                    else:
-                        actions = m.sample()
-                    actions = torch.where(traj_done, torch.zeros_like(actions), actions)
-                    actions_list.append(actions)
-                    step_mask = torch.zeros(
-                        B * K, N, dtype=torch.bool, device=self.device
-                    )
-                    step_mask.scatter_(1, actions.unsqueeze(-1), True)
-                    visited = visited | step_mask
-                    visited[:, :num_depots] = depot_mask_flat[:, :num_depots]
-                    traj_done = traj_done | visited.all(dim=-1)
-        actions_seq = torch.stack(actions_list, dim=1)  # [B*K, T]
-        T = actions_seq.size(1)
+                visit_frac = visited.float().mean(dim=-1)
+                remaining_cap = 1.0 - (demand.float().mean(dim=-1) * visit_frac)
+                unvisited_tw_end = tw_end.float().masked_fill(visited, float("inf"))
+                min_tw_end = unvisited_tw_end.min(dim=-1).values
+                max_tw_end = unvisited_tw_end.max(dim=-1).values
+                tw_urgency = 1.0 - (min_tw_end / (max_tw_end + 1e-8))
+                unvisited_count = (~visited).float().sum(dim=-1) / N
+                vs = torch.stack(
+                    [visit_frac, remaining_cap, tw_urgency, unvisited_count], dim=-1
+                )
+                vf = self.policy.vehicle_embedding(vs)
+                logits = self.policy.decoder(enc_out, ctx, vf, mask=visited)
+                logits = logits.masked_fill(visited, float("-inf"))
+                m = torch.distributions.Categorical(logits=logits)
+                if first_step:
+                    actions = start_nodes
+                    first_step = False
+                else:
+                    actions = m.sample()
+                log_prob = m.log_prob(actions)
+                actions = torch.where(traj_done, torch.zeros_like(actions), actions)
+                log_prob = torch.where(traj_done, torch.zeros_like(log_prob), log_prob)
+                log_probs_list.append(log_prob)
+                actions_list.append(actions)
+                step_mask = torch.zeros(B * K, N, dtype=torch.bool, device=self.device)
+                step_mask.scatter_(1, actions.unsqueeze(-1), True)
+                visited = visited | step_mask
+                visited[:, :num_depots] = depot_mask_flat[:, :num_depots]
+                traj_done = traj_done | visited.all(dim=-1)
+        # ------------------------------------------------------------
+        # Log-likelihood: sum of log_probs across all steps (per trajectory)
+        # ------------------------------------------------------------
+        log_likelihood = torch.stack(log_probs_list, dim=1).sum(dim=1)  # [B*K]
         # Cost per trajectory
+        actions_seq = torch.stack(actions_list, dim=1)  # [B*K, T]
         prev = actions_seq[:, :-1]
         nxt = actions_seq[:, 1:]
         row = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
         route_dist = row.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
         max_dist = math.sqrt(2.0) * N
         cost = (route_dist / max_dist).view(B, K)  # [B, K]
+        # POMO shared baseline: advantage = baseline - cost
         with torch.no_grad():
             baseline = cost.mean(dim=1, keepdim=True)
-            advantage = baseline - cost  # + means cheaper than avg
-        adv = advantage.unsqueeze(-1).expand(-1, -1, T)  # [B, K, T]
-        # ------------------------------------------------------------
-        # Phase 2: backward per step — cache encoder WITH grad, replay decoder
-        # Each step's decoder graph (~30MB) is freed after backward().
-        # Encoder graph (~1.3GB) retained throughout but fits in 16GB.
-        # Uses actions_seq from Phase 1 (no re-sampling) for correct log_probs.
-        # ------------------------------------------------------------
-        enc_out = self.policy.encoder(coords, dist_mat)
-        enc_out, ctx = self.policy.context_module(
-            enc_out, dist_mat, torch.zeros(B * K, D, device=self.device)
-        )
-        self.optimizer.zero_grad()
-        visited = depot_mask_flat.clone()
-        traj_done = torch.zeros(B * K, dtype=torch.bool, device=self.device)
-        cum_loss = 0.0
-        cum_ent = 0.0
-        for t in range(T):
-            if traj_done.all():
-                break
-            visit_frac = visited.float().mean(dim=-1)
-            remaining_cap = 1.0 - (demand.float().mean(dim=-1) * visit_frac)
-            unvisited_tw_end = tw_end.float().masked_fill(visited, float("inf"))
-            min_tw_end = unvisited_tw_end.min(dim=-1).values
-            max_tw_end = unvisited_tw_end.max(dim=-1).values
-            tw_urgency = 1.0 - (min_tw_end / (max_tw_end + 1e-8))
-            unvisited_count = (~visited).float().sum(dim=-1) / N
-            vs = torch.stack(
-                [visit_frac, remaining_cap, tw_urgency, unvisited_count], dim=-1
-            )
-            vf = self.policy.vehicle_embedding(vs)
-            logits = self.policy.decoder(enc_out, ctx, vf, mask=visited)
-            logits = logits.masked_fill(visited, float("-inf"))
-            m = torch.distributions.Categorical(logits=logits)
-            # Replay Phase 1's actions (ensures log_probs match the trajectory that generated the advantage)
-            action_t = actions_seq[:, t]
-            log_prob_t = m.log_prob(action_t)
-            ent_t = m.entropy()
-            # Zero out done trajectories
-            log_prob_t = torch.where(
-                traj_done, torch.zeros_like(log_prob_t), log_prob_t
-            )
-            ent_t = torch.where(traj_done, torch.zeros_like(ent_t), ent_t)
-            step_adv = adv[:, :, t].reshape(B * K)
-            loss_t = -(log_prob_t * step_adv.detach()).mean()
-            cum_loss += loss_t.item()
-            cum_ent += ent_t.mean().item()
-            loss_t = (loss_t - entropy_beta * ent_t.mean()) / T
-            loss_t.backward(retain_graph=(t < T - 1))
-            step_mask = torch.zeros(B * K, N, dtype=torch.bool, device=self.device)
-            step_mask.scatter_(1, action_t.unsqueeze(-1), True)
-            visited = visited | step_mask
-            visited[:, :num_depots] = depot_mask_flat[:, :num_depots]
-            traj_done = traj_done | visited.all(dim=-1)
+            advantage = baseline - cost  # + means cheaper than average
+        # REINFORCE loss (as in rl4co/POMO: no T scaling, no entropy reg)
+        reinforce_loss = -(advantage * log_likelihood.view(B, K)).mean()
+        reinforce_loss.backward()
         torch.nn.utils.clip_grad_norm_(
             self.policy.parameters(), self.cfg["training"]["max_grad_norm"]
         )
         self.optimizer.step()
-        loss_val = cum_loss / T
+        loss_val = reinforce_loss.item()
         if debug:
             with torch.no_grad():
                 cost_std = cost.std().item()
@@ -314,14 +262,16 @@ class POMOTrainer:
                 )
                 clip_val = self.policy.decoder.logit_clip.item()
                 temp_val = self.policy.decoder.logit_temperature.item()
+                ent_val = torch.stack(log_probs_list, dim=1).exp().mean().item()
             print(
                 f"  [debug] cost: mean={cost.mean().item():.4f} std={cost_std:.4f} "
                 f"| adv: [{adv_min:.6f}, {adv_max:.6f}] "
-                f"| ent={cum_ent / T:.4f} | loss={loss_val:.10f} | grad_norm={grad_norm:.6f}"
-                f" | clip={clip_val:.2f} temp={temp_val:.2f}"
+                f"| ll={log_likelihood.mean().item():.2f} | loss={loss_val:.8f} "
+                f"| grad_norm={grad_norm:.6f} | clip={clip_val:.2f} temp={temp_val:.2f}"
             )
         if not math.isfinite(loss_val):
             print(f"  WARNING: non-finite loss {loss_val}, skipping batch")
+            loss_val = 0.0
         return loss_val
 
     def save_checkpoint(self, path: str):
