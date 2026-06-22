@@ -233,8 +233,7 @@ class POMOTrainer:
         nxt = actions_seq[:, 1:]
         row = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
         route_dist = row.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
-        max_dist = math.sqrt(2.0) * N
-        cost = (route_dist / max_dist).view(B, K)  # [B, K]
+        cost = route_dist.view(B, K)  # [B, K], raw distance (no normalization)
         # POMO shared baseline: advantage = baseline - cost
         with torch.no_grad():
             baseline = cost.mean(dim=1, keepdim=True)

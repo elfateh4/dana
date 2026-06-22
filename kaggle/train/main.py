@@ -48,8 +48,9 @@ with open("configs/dana.yaml") as f:
     cfg = yaml.safe_load(f)
 
 cfg["training"]["num_epochs"] = 10
-cfg["training"]["instances_per_epoch"] = 4000
-cfg["training"]["batch_size"] = 16
+cfg["training"]["instances_per_epoch"] = 8000
+cfg["training"]["batch_size"] = 32
+cfg["training"]["max_grad_norm"] = 5.0
 cfg["pomo"]["num_starts"] = 45
 cfg["model"]["num_encoder_layers"] = 4
 cfg["model"]["num_decoder_layers"] = 2
