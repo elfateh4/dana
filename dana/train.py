@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 import yaml
@@ -133,6 +134,7 @@ class POMOTrainer:
         tw_end = instance["tw_end"].unsqueeze(0).expand(B, -1).to(self.device)
         visited = depot_mask.clone()
         log_probs_list = []
+        actions_list = []
         for vehicle_idx in range(self.cfg["environment"]["max_vehicles"]):
             if visited.all():
                 break
@@ -157,6 +159,7 @@ class POMOTrainer:
                 actions = m.sample()
                 log_probs = m.log_prob(actions)
                 log_probs_list.append(log_probs)
+                actions_list.append(actions)
                 step_mask = torch.zeros(B, N, dtype=torch.bool, device=self.device)
                 step_mask.scatter_(1, actions.unsqueeze(-1), True)
                 visited = visited | step_mask
@@ -164,9 +167,16 @@ class POMOTrainer:
                 if visited.all() or step >= N * 2 - 1:
                     break
         log_probs = torch.stack(log_probs_list, dim=1)
+        actions_seq = torch.stack(actions_list, dim=1)
         n_customers = N - num_depots
         coverage = visited[:, num_depots:].float().mean(dim=1)
-        reward_per_traj = coverage.to(self.device)
+        prev = actions_seq[:, :-1]
+        nxt = actions_seq[:, 1:]
+        route_dist = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
+        route_dist = route_dist.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+        max_dist = math.sqrt(2.0) * N
+        dist_penalty = (route_dist / max_dist).clamp(0, 1)
+        reward_per_traj = (coverage - dist_penalty * 0.5).to(self.device)
         rewards = reward_per_traj.unsqueeze(1).expand(-1, log_probs.size(1))
         baseline = rewards.mean(dim=1, keepdim=True)
         advantage = rewards - baseline

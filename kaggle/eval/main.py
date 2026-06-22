@@ -1,5 +1,6 @@
-import os, sys, subprocess, json, yaml
+import glob, os, shutil, sys, subprocess, json, yaml
 import numpy as np
+import torch
 
 subprocess.run(
     [
@@ -32,14 +33,66 @@ if not os.path.exists(REPO_DIR):
     )
 os.chdir(REPO_DIR)
 sys.path.insert(0, REPO_DIR)
-sys.path.insert(0, "/kaggle/input/dana-checkpoints")
 
 INSTANCE_DIR = "/kaggle/input/dana-benchmarks"
+if not os.path.exists(INSTANCE_DIR):
+    print("Benchmark dataset not mounted — downloading...")
+    subprocess.run(
+        [
+            "kaggle",
+            "datasets",
+            "download",
+            "elfateh/dana-benchmarks",
+            "-p",
+            "/kaggle/input",
+        ],
+        check=True,
+    )
+    import zipfile
+
+    with zipfile.ZipFile("/kaggle/input/dana-benchmarks.zip", "r") as z:
+        z.extractall("/kaggle/input/dana-benchmarks")
+
+CKPT_DIR = "/kaggle/input/dana-checkpoints"
+if not os.path.exists(CKPT_DIR):
+    print("Checkpoint dataset not mounted — downloading...")
+    subprocess.run(
+        [
+            "kaggle",
+            "datasets",
+            "download",
+            "elfateh/dana-checkpoints",
+            "-p",
+            "/kaggle/input",
+        ],
+        check=True,
+    )
+    import zipfile
+
+    with zipfile.ZipFile("/kaggle/input/dana-checkpoints.zip", "r") as z:
+        z.extractall("/kaggle/input/dana-checkpoints")
+
 os.makedirs("reports", exist_ok=True)
 os.makedirs("/kaggle/working/results", exist_ok=True)
 
 with open("configs/dana.yaml") as f:
     cfg = yaml.safe_load(f)
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+ckpt_files = sorted(glob.glob(os.path.join(CKPT_DIR, "*.pt")))
+if ckpt_files:
+    latest_ckpt = ckpt_files[-1]
+    print(f"Loading DANA checkpoint: {latest_ckpt}")
+    from dana.train import build_policy
+
+    dana_policy = build_policy(cfg).to(device)
+    dana_policy.eval()
+    ckpt = torch.load(latest_ckpt, map_location=device)
+    dana_policy.load_state_dict(ckpt["policy_state_dict"])
+else:
+    print("No DANA checkpoint found — skipping DANA evaluation")
+    dana_policy = None
 
 HGS_BIN = "/usr/local/bin/HGS-CVRP"
 if not os.path.exists(HGS_BIN):
@@ -91,6 +144,82 @@ from dana.eval.baselines import BaselineRunner
 from dana.eval.metrics import compute_gap, evaluate_solver_set, compute_summary
 from dana.eval.plots import generate_report
 
+
+def parse_vrp_coords(path: str) -> np.ndarray:
+    coords, section = [], False
+    with open(path) as f:
+        for line in f:
+            s = line.strip()
+            if s.upper().startswith("NODE_COORD_SECTION"):
+                section = True
+                continue
+            if (
+                s.upper().startswith("DEMAND_SECTION")
+                or s.upper().startswith("DEPOT_SECTION")
+                or s.upper().startswith("TIME_WINDOW_SECTION")
+                or s.upper().startswith("EOF")
+            ):
+                section = False
+                continue
+            if section and s:
+                parts = s.split()
+                if len(parts) >= 3:
+                    coords.append((float(parts[1]), float(parts[2])))
+    return np.array(coords, dtype=np.float32)
+
+
+def run_dana_on_instance(policy, vrp_path: str, device: str, cfg: dict) -> dict:
+    try:
+        coords_np = parse_vrp_coords(vrp_path)
+        N = len(coords_np)
+        B = 1
+        coords = torch.tensor(coords_np, dtype=torch.float, device=device).unsqueeze(0)
+        diff = coords_np[:, None] - coords_np[None, :]
+        dist_np = np.sqrt((diff**2).sum(axis=-1))
+        dist_mat = torch.tensor(dist_np, dtype=torch.float, device=device).unsqueeze(0)
+        depot_mask = torch.zeros(B, N, dtype=torch.bool, device=device)
+        depot_mask[:, 0] = True
+        demand = torch.ones(B, N, dtype=torch.float, device=device)
+        tw_start = torch.zeros(B, N, dtype=torch.float, device=device)
+        tw_end = torch.full((B, N), 480.0, dtype=torch.float, device=device)
+        visited = depot_mask.clone()
+        actions = []
+        with torch.no_grad():
+            for _ in range(cfg["environment"]["max_vehicles"]):
+                if visited.all():
+                    break
+                for _ in range(N * 2):
+                    logits = policy(
+                        coords,
+                        dist_mat,
+                        dist_mat,
+                        depot_mask,
+                        demand,
+                        tw_start,
+                        tw_end,
+                        visited_mask=visited,
+                        return_logits=True,
+                    )
+                    logits = logits.masked_fill(visited, float("-inf"))
+                    a = logits.argmax(dim=-1)
+                    actions.append(a)
+                    step_mask = torch.zeros(B, N, dtype=torch.bool, device=device)
+                    step_mask.scatter_(1, a.unsqueeze(-1), True)
+                    visited = visited | step_mask
+                    visited[:, :1] = depot_mask[:, :1]
+                    if visited.all():
+                        break
+        if len(actions) < 2:
+            return {"cost": None, "status": "no_solution", "time": 0}
+        acts = torch.cat(actions)
+        prev = acts[:-1]
+        nxt = acts[1:]
+        route_dist = dist_mat[0, prev, nxt].sum().item()
+        return {"cost": route_dist, "status": "success", "time": 0}
+    except Exception as e:
+        return {"cost": None, "status": "error", "error": str(e)}
+
+
 runner = BaselineRunner(
     time_limit=cfg["evaluation"]["time_limit"], num_runs=cfg["evaluation"]["num_runs"]
 )
@@ -123,6 +252,10 @@ for bench_name, bench_info in benchmarks.items():
     for inst_file in instance_files:
         print(f"  {os.path.basename(inst_file)}")
         baselines = runner.run_all(inst_file, bench_info["problem"])
+        if dana_policy is not None:
+            baselines["dana"] = run_dana_on_instance(
+                dana_policy, inst_file, device, cfg
+            )
         for solver, result in baselines.items():
             if result.get("cost") is not None:
                 results[solver]["costs"].append(result["cost"])
@@ -149,10 +282,28 @@ for bench_name, bench_info in benchmarks.items():
         json.dump(summary, f, indent=2, default=str)
 
 print("\nEvaluation complete.")
-import kagglehub
-
-kagglehub.upload_dataset(
-    "/kaggle/working/results",
-    "elfateh/dana-results",
-    message="DANA vs HGS/LKH-3/PyVRP/OR-Tools evaluation",
+os.makedirs("/kaggle/working/dana-results", exist_ok=True)
+shutil.copytree(
+    "/kaggle/working/results", "/kaggle/working/dana-results", dirs_exist_ok=True
+)
+with open("/kaggle/working/dana-results/dataset-metadata.json", "w") as f:
+    json.dump(
+        {
+            "title": "dana-results",
+            "id": "elfateh/dana-results",
+            "licenses": [{"name": "CC0-1.0"}],
+        },
+        f,
+    )
+subprocess.run(
+    [
+        "kaggle",
+        "datasets",
+        "create",
+        "-p",
+        "/kaggle/working/dana-results",
+        "--dir-mode",
+        "zip",
+    ],
+    check=True,
 )

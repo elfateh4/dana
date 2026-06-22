@@ -75,11 +75,10 @@ subprocess.run(
     [
         "kaggle",
         "datasets",
-        "create",
+        "version",
         "-p",
         "/kaggle/working/dana-checkpoints",
-        "--dir-mode",
-        "zip",
+        "-m",
+        f"Checkpoint after epoch {num_epochs}",
     ],
-    check=True,
 )
