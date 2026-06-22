@@ -2,7 +2,7 @@ import glob, os, shutil, sys, subprocess, json, yaml
 import numpy as np
 import torch
 
-# Install PyTorch with CUDA 11.8 (supports P100/Tesla sm_60 which Kaggle often allocates)
+# Install official PyTorch CUDA 12.1 build (includes sm_60 for P100, sm_75 for T4)
 subprocess.run(
     [
         "pip",
@@ -10,8 +10,27 @@ subprocess.run(
         "-q",
         "torch",
         "--index-url",
-        "https://download.pytorch.org/whl/cu118",
+        "https://download.pytorch.org/whl/cu121",
         "--force-reinstall",
+    ],
+    check=True,
+)
+subprocess.run(
+    [
+        "pip",
+        "install",
+        "-q",
+        "numpy",
+        "scipy",
+        "matplotlib",
+        "tqdm",
+        "pyyaml",
+        "scikit-learn",
+        "pandas",
+        "kagglehub",
+        "networkx",
+        "pyvrp",
+        "ortools",
     ],
     check=True,
 )

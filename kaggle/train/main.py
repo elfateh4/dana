@@ -1,7 +1,7 @@
 import json, os, shutil, subprocess, sys, yaml
-import torch
 
-# Install PyTorch with CUDA 11.8 (supports P100/Tesla sm_60 which Kaggle often allocates)
+# Install official PyTorch CUDA 12.1 build (includes sm_60 for P100, sm_75 for T4)
+# Kaggle's default PyTorch is a custom build that may lack sm_60 support
 subprocess.run(
     [
         "pip",
@@ -9,7 +9,7 @@ subprocess.run(
         "-q",
         "torch",
         "--index-url",
-        "https://download.pytorch.org/whl/cu118",
+        "https://download.pytorch.org/whl/cu121",
         "--force-reinstall",
     ],
     check=True,
@@ -31,6 +31,8 @@ subprocess.run(
     ],
     check=True,
 )
+
+import torch
 
 REPO = "https://github.com/elfateh4/dana.git"
 REPO_DIR = "/kaggle/working/dana"
