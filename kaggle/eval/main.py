@@ -269,7 +269,8 @@ with open("/kaggle/working/dana-results/dataset-metadata.json", "w") as f:
         },
         f,
     )
-subprocess.run(
+# Create or update results dataset
+result = subprocess.run(
     [
         "kaggle",
         "datasets",
@@ -279,5 +280,22 @@ subprocess.run(
         "--dir-mode",
         "zip",
     ],
-    check=True,
+    capture_output=True,
+    text=True,
 )
+if result.returncode != 0:
+    print(f"Dataset create failed (may already exist): {result.stderr.strip()}")
+    subprocess.run(
+        [
+            "kaggle",
+            "datasets",
+            "version",
+            "-p",
+            "/kaggle/working/dana-results",
+            "-m",
+            "Updated results",
+            "--dir-mode",
+            "zip",
+        ],
+        check=True,
+    )
