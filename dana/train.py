@@ -113,19 +113,21 @@ class POMOTrainer:
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
         max_vehicles = self.cfg["environment"]["max_vehicles"]
+        entropy_beta = self.cfg["training"].get("entropy_beta", 0.01)
         if self.synthetic_mode:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
-            city = np.random.choice(self.train_cities)
-            instance = city_to_tensor_dict(city, num_loc, num_depots)
-        self.env.reset(instance)
+            try:
+                city = np.random.choice(self.train_cities)
+                instance = city_to_tensor_dict(city, num_loc, num_depots)
+            except (FileNotFoundError, OSError):
+                print("City data load failed — falling back to synthetic")
+                self.synthetic_mode = True
+                instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         N = instance["coords"].size(0)
         coords = instance["coords"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         dist_mat = (
             instance["distance_matrix"].unsqueeze(0).expand(B, -1, -1).to(self.device)
-        )
-        dur_mat = (
-            instance["duration_matrix"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         )
         depot_mask = instance["depot_mask"].unsqueeze(0).expand(B, -1).to(self.device)
         demand = instance["demand"].unsqueeze(0).expand(B, -1).to(self.device)
@@ -134,6 +136,7 @@ class POMOTrainer:
         visited = depot_mask.clone()
         log_probs_list = []
         actions_list = []
+        entropies_list = []
         # Track which trajectories in batch have finished all nodes
         traj_done = torch.zeros(B, dtype=torch.bool, device=self.device)
         for _ in range(max_vehicles):
@@ -145,7 +148,7 @@ class POMOTrainer:
                 logits = self.policy(
                     coords,
                     dist_mat,
-                    dur_mat,
+                    dist_mat,
                     depot_mask,
                     demand,
                     tw_start,
@@ -153,8 +156,8 @@ class POMOTrainer:
                     visited_mask=visited,
                     return_logits=True,
                 )
-                mask = visited
-                logits = logits.masked_fill(mask, float("-inf"))
+                # Policy internal decoder already masks visited; mask again for safety
+                logits = logits.masked_fill(visited, float("-inf"))
                 # Prevent NaN: for done trajectories (all visited), use zero logits
                 logits = torch.where(
                     traj_done.unsqueeze(-1),
@@ -165,6 +168,7 @@ class POMOTrainer:
                 m = torch.distributions.Categorical(probs)
                 actions = m.sample()
                 log_probs = m.log_prob(actions)
+                entropies_list.append(m.entropy())
                 # Override: done trajectories take depot (no effect on visited)
                 actions = torch.where(traj_done, torch.zeros_like(actions), actions)
                 # Zero gradient contribution from done trajectories
@@ -180,6 +184,7 @@ class POMOTrainer:
                 traj_done = traj_done | visited.all(dim=-1)
         log_probs = torch.stack(log_probs_list, dim=1)  # [B, T]
         actions_seq = torch.stack(actions_list, dim=1)  # [B, T]
+        entropies = torch.stack(entropies_list, dim=1)  # [B, T]
         # Reward = negative normalized route distance (minimize route length)
         prev = actions_seq[:, :-1]
         nxt = actions_seq[:, 1:]
@@ -193,7 +198,10 @@ class POMOTrainer:
         advantage = -(cost - baseline)  # [B], positive for better-than-average
         # Expand advantage to match log_probs timesteps
         adv = advantage.unsqueeze(1).expand(-1, log_probs.size(1))
-        loss = -(log_probs * adv.detach()).mean()
+        policy_loss = -(log_probs * adv.detach()).mean()
+        # Entropy regularization to maintain exploration
+        entropy_mean = entropies.mean()
+        loss = policy_loss - entropy_beta * entropy_mean
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
@@ -208,6 +216,7 @@ class POMOTrainer:
                 cost_std = cost.std().item()
                 adv_max = advantage.max().item()
                 adv_min = advantage.min().item()
+                ent_val = entropy_mean.item()
                 grad_norm = (
                     sum(
                         p.grad.norm().item() ** 2
@@ -220,7 +229,7 @@ class POMOTrainer:
                 f"  [debug] cost: mean={cost.mean().item():.4f} std={cost_std:.4f} "
                 f"| adv: [{adv_min:.6f}, {adv_max:.6f}] "
                 f"| logp: [{logp_min:.4f}, {logp_max:.4f}] "
-                f"| loss={loss_val:.8f} | grad_norm={grad_norm:.4f}"
+                f"| ent={ent_val:.4f} | loss={loss_val:.10f} | grad_norm={grad_norm:.6f}"
             )
         if not math.isfinite(loss_val):
             print(f"  WARNING: non-finite loss {loss_val}, skipping batch")

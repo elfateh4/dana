@@ -17,6 +17,7 @@ training:
   lr_scheduler: cosine
   warmup_steps: 1000
   max_grad_norm: 1.0
+  entropy_beta: 0.01
 
 pomo:
   num_starts: 8

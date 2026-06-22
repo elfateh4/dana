@@ -52,8 +52,8 @@ class RouteDecoder(nn.Module):
         self.layers = nn.ModuleList(
             [DecoderLayer(embedding_dim, num_heads, dropout) for _ in range(num_layers)]
         )
-        self.glimpse = nn.MultiheadAttention(embedding_dim, num_heads, batch_first=True)
-        self.logit_proj = nn.Linear(embedding_dim, 1)
+        # Project query to key-space for per-node compatibility scoring
+        self.query_proj = nn.Linear(embedding_dim, embedding_dim)
 
     def forward(
         self,
@@ -70,13 +70,25 @@ class RouteDecoder(nn.Module):
         decoder_input = self.context_proj(context_in).unsqueeze(1)
         for layer in self.layers:
             decoder_input = layer(decoder_input, node_embeddings)
-        query = decoder_input
+        query = decoder_input  # [B, 1, D]
         if num_starts > 1:
             query = query.expand(-1, num_starts, -1)
-        glimpse_out, _ = self.glimpse(query, node_embeddings, node_embeddings)
-        logits = self.logit_proj(glimpse_out).squeeze(-1)
+        # Per-node compatibility: query · node_embedding_i / sqrt(D)
+        # This gives each node its own logit (unlike the old glimpse+logit_proj
+        # which collapsed to a single scalar broadcast to all nodes)
+        query = self.query_proj(query)  # [B, num_starts, D]
+        logits = torch.matmul(
+            query, node_embeddings.transpose(-2, -1)
+        )  # [B, num_starts, N]
+        logits = logits / math.sqrt(D)
+        # Clip to prevent extreme logits (standard NCO trick)
+        logits = 10 * torch.tanh(logits)
         if mask is not None:
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(1)  # [B, 1, N] for broadcasting
             logits = logits.masked_fill(mask, float("-inf"))
+        if num_starts == 1:
+            logits = logits.squeeze(1)  # [B, N]
         return logits
 
 
