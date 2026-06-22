@@ -35,42 +35,16 @@ os.chdir(REPO_DIR)
 sys.path.insert(0, REPO_DIR)
 
 INSTANCE_DIR = "/kaggle/input/dana-benchmarks"
-if not os.path.exists(INSTANCE_DIR):
-    print("Benchmark dataset not mounted — downloading...")
-    subprocess.run(
-        [
-            "kaggle",
-            "datasets",
-            "download",
-            "elfateh/dana-benchmarks",
-            "-p",
-            "/kaggle/input",
-        ],
-        check=True,
-    )
-    import zipfile
-
-    with zipfile.ZipFile("/kaggle/input/dana-benchmarks.zip", "r") as z:
-        z.extractall("/kaggle/input/dana-benchmarks")
+assert os.path.exists(INSTANCE_DIR), (
+    f"Benchmark dataset not found at {INSTANCE_DIR}. "
+    "Ensure elfateh/dana-benchmarks is in kernel-metadata.json dataset_sources."
+)
 
 CKPT_DIR = "/kaggle/input/dana-checkpoints"
-if not os.path.exists(CKPT_DIR):
-    print("Checkpoint dataset not mounted — downloading...")
-    subprocess.run(
-        [
-            "kaggle",
-            "datasets",
-            "download",
-            "elfateh/dana-checkpoints",
-            "-p",
-            "/kaggle/input",
-        ],
-        check=True,
-    )
-    import zipfile
-
-    with zipfile.ZipFile("/kaggle/input/dana-checkpoints.zip", "r") as z:
-        z.extractall("/kaggle/input/dana-checkpoints")
+assert os.path.exists(CKPT_DIR), (
+    f"Checkpoint dataset not found at {CKPT_DIR}. "
+    "Ensure elfateh/dana-checkpoints is in kernel-metadata.json dataset_sources."
+)
 
 os.makedirs("reports", exist_ok=True)
 os.makedirs("/kaggle/working/results", exist_ok=True)
