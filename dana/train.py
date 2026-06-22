@@ -133,7 +133,6 @@ class POMOTrainer:
         tw_end = instance["tw_end"].unsqueeze(0).expand(B, -1).to(self.device)
         visited = depot_mask.clone()
         log_probs_list = []
-        rewards_list = []
         for vehicle_idx in range(self.cfg["environment"]["max_vehicles"]):
             if visited.all():
                 break
@@ -162,12 +161,13 @@ class POMOTrainer:
                 step_mask.scatter_(1, actions.unsqueeze(-1), True)
                 visited = visited | step_mask
                 visited[:, :num_depots] = depot_mask[:, :num_depots]
-                reward = torch.tensor(0.0, device=self.device)
-                rewards_list.append(reward.unsqueeze(0).expand(B))
                 if visited.all() or step >= N * 2 - 1:
                     break
         log_probs = torch.stack(log_probs_list, dim=1)
-        rewards = torch.stack(rewards_list, dim=1)
+        n_customers = N - num_depots
+        coverage = visited[:, num_depots:].float().mean(dim=1)
+        reward_per_traj = coverage.to(self.device)
+        rewards = reward_per_traj.unsqueeze(1).expand(-1, log_probs.size(1))
         baseline = rewards.mean(dim=1, keepdim=True)
         advantage = rewards - baseline
         loss = -(log_probs * advantage.detach()).mean()
