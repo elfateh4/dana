@@ -120,6 +120,7 @@ class POMOTrainer:
 
     def _train_batch(self, debug: bool = False) -> float:
         B = self.cfg["training"]["batch_size"]
+        K = self.num_starts
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
         max_vehicles = self.cfg["environment"]["max_vehicles"]
@@ -128,7 +129,6 @@ class POMOTrainer:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
             try:
-                # Use deterministic city rotation (different city each epoch)
                 city = self.city_rotation.get_city()
                 instance = city_to_tensor_dict(
                     city,
@@ -141,20 +141,55 @@ class POMOTrainer:
                 self.synthetic_mode = True
                 instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         N = instance["coords"].size(0)
-        coords = instance["coords"].unsqueeze(0).expand(B, -1, -1).to(self.device)
+        coords = (
+            instance["coords"]
+            .unsqueeze(0)
+            .expand(B, K, -1, -1)
+            .reshape(B * K, N, 2)
+            .to(self.device)
+        )
         dist_mat = (
-            instance["distance_matrix"].unsqueeze(0).expand(B, -1, -1).to(self.device)
+            instance["distance_matrix"]
+            .unsqueeze(0)
+            .expand(B, K, -1, -1)
+            .reshape(B * K, N, N)
+            .to(self.device)
         )
         depot_mask = instance["depot_mask"].unsqueeze(0).expand(B, -1).to(self.device)
-        demand = instance["demand"].unsqueeze(0).expand(B, -1).to(self.device)
-        tw_start = instance["tw_start"].unsqueeze(0).expand(B, -1).to(self.device)
-        tw_end = instance["tw_end"].unsqueeze(0).expand(B, -1).to(self.device)
-        visited = depot_mask.clone()
+        depot_mask_flat = depot_mask.unsqueeze(1).expand(B, K, -1).reshape(B * K, N)
+        demand = (
+            instance["demand"]
+            .unsqueeze(0)
+            .expand(B, K, -1)
+            .reshape(B * K, N)
+            .to(self.device)
+        )
+        tw_start = (
+            instance["tw_start"]
+            .unsqueeze(0)
+            .expand(B, K, -1)
+            .reshape(B * K, N)
+            .to(self.device)
+        )
+        tw_end = (
+            instance["tw_end"]
+            .unsqueeze(0)
+            .expand(B, K, -1)
+            .reshape(B * K, N)
+            .to(self.device)
+        )
+        visited = depot_mask_flat.clone()
+        # POMO forced starts: each of the K trajectories within a batch element starts
+        # at a different customer node, ensuring diverse trajectories.
+        start_offset = num_depots
+        start_nodes = (
+            torch.arange(K, device=self.device).repeat(B) + start_offset
+        ).clamp(max=N - 1)  # [B*K]
         log_probs_list = []
         actions_list = []
         entropies_list = []
-        # Track which trajectories in batch have finished all nodes
-        traj_done = torch.zeros(B, dtype=torch.bool, device=self.device)
+        traj_done = torch.zeros(B * K, dtype=torch.bool, device=self.device)
+        first_step = True
         for _ in range(max_vehicles):
             if traj_done.all():
                 break
@@ -165,51 +200,53 @@ class POMOTrainer:
                     coords,
                     dist_mat,
                     dist_mat,
-                    depot_mask,
+                    depot_mask_flat,
                     demand,
                     tw_start,
                     tw_end,
                     visited_mask=visited,
                     return_logits=True,
                 )
-                # Policy internal decoder already masks visited; mask again for safety
                 logits = logits.masked_fill(visited, float("-inf"))
-                # Use logits directly (more numerically stable than probs)
                 m = torch.distributions.Categorical(logits=logits)
-                actions = m.sample()
+                if first_step:
+                    # Force each trajectory's first action to its assigned start node
+                    actions = start_nodes
+                    first_step = False
+                else:
+                    actions = m.sample()
                 log_probs = m.log_prob(actions)
                 entropies_list.append(m.entropy())
                 # Override: done trajectories take depot (no effect on visited)
                 actions = torch.where(traj_done, torch.zeros_like(actions), actions)
-                # Zero gradient for done trajectories (they don't contribute to learning)
                 log_probs = torch.where(
                     traj_done, torch.zeros_like(log_probs), log_probs
                 )
                 log_probs_list.append(log_probs)
                 actions_list.append(actions)
-                step_mask = torch.zeros(B, N, dtype=torch.bool, device=self.device)
+                step_mask = torch.zeros(B * K, N, dtype=torch.bool, device=self.device)
                 step_mask.scatter_(1, actions.unsqueeze(-1), True)
                 visited = visited | step_mask
-                visited[:, :num_depots] = depot_mask[:, :num_depots]
+                visited[:, :num_depots] = depot_mask_flat[:, :num_depots]
                 traj_done = traj_done | visited.all(dim=-1)
-        log_probs = torch.stack(log_probs_list, dim=1)  # [B, T]
-        actions_seq = torch.stack(actions_list, dim=1)  # [B, T]
-        entropies = torch.stack(entropies_list, dim=1)  # [B, T]
-        # Reward = negative normalized route distance (minimize route length)
+        log_probs = torch.stack(log_probs_list, dim=1)  # [B*K, T]
+        actions_seq = torch.stack(actions_list, dim=1)  # [B*K, T]
+        entropies = torch.stack(entropies_list, dim=1)  # [B*K, T]
+        # Compute cost per trajectory
         prev = actions_seq[:, :-1]
         nxt = actions_seq[:, 1:]
-        # route_dist[b] = sum_t dist_mat[b, prev[b,t], nxt[b,t]]
         row = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
         route_dist = row.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
         max_dist = math.sqrt(2.0) * N
-        cost = route_dist / max_dist  # normalized cost in [0, roughly 1]
-        # REINFORCE: advantage = -(cost - mean_cost), i.e. lower cost = better
-        baseline = cost.mean()
-        advantage = -(cost - baseline)  # [B], positive for better-than-average
-        # Expand advantage to match log_probs timesteps
-        adv = advantage.unsqueeze(1).expand(-1, log_probs.size(1))
+        cost = route_dist / max_dist  # [B*K]
+        # POMO advantage: per-instance baseline across K starts
+        cost = cost.view(B, K)  # [B, K]
+        log_probs = log_probs.view(B, K, -1)
+        with torch.no_grad():
+            baseline = cost.mean(dim=1, keepdim=True)  # [B, 1]
+            advantage = baseline - cost  # [B, K], positive for cheaper-than-average
+        adv = advantage.unsqueeze(-1).expand(-1, -1, log_probs.size(2))
         policy_loss = -(log_probs * adv.detach()).mean()
-        # Entropy regularization to maintain exploration
         entropy_mean = entropies.mean()
         loss = policy_loss - entropy_beta * entropy_mean
         self.optimizer.zero_grad()
