@@ -109,18 +109,17 @@ class POMOTrainer:
         return total_loss / num_batches
 
     def _train_batch(self) -> float:
-        batch_size = self.cfg["training"]["batch_size"]
+        B = self.cfg["training"]["batch_size"]
         num_loc = self.cfg["data"]["num_locations"]
         num_depots = self.cfg["environment"]["max_depots"]
+        max_vehicles = self.cfg["environment"]["max_vehicles"]
         if self.synthetic_mode:
             instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
         else:
             city = np.random.choice(self.train_cities)
             instance = city_to_tensor_dict(city, num_loc, num_depots)
         self.env.reset(instance)
-        B = batch_size
         N = instance["coords"].size(0)
-        D = self.cfg["model"]["embedding_dim"]
         coords = instance["coords"].unsqueeze(0).expand(B, -1, -1).to(self.device)
         dist_mat = (
             instance["distance_matrix"].unsqueeze(0).expand(B, -1, -1).to(self.device)
@@ -135,12 +134,14 @@ class POMOTrainer:
         visited = depot_mask.clone()
         log_probs_list = []
         actions_list = []
-        for vehicle_idx in range(self.cfg["environment"]["max_vehicles"]):
-            if visited.all():
+        # Track which trajectories in batch have finished all nodes
+        traj_done = torch.zeros(B, dtype=torch.bool, device=self.device)
+        for _ in range(max_vehicles):
+            if traj_done.all():
                 break
-            vehicle_state = torch.zeros(B, 3, device=self.device)
-            vehicle_state[:, 2] = 0.0
-            for step in range(N * 2):
+            for _ in range(N * 2):
+                if traj_done.all():
+                    break
                 logits = self.policy(
                     coords,
                     dist_mat,
@@ -154,40 +155,55 @@ class POMOTrainer:
                 )
                 mask = visited
                 logits = logits.masked_fill(mask, float("-inf"))
+                # Prevent NaN: for done trajectories (all visited), use zero logits
+                logits = torch.where(
+                    traj_done.unsqueeze(-1),
+                    torch.zeros_like(logits),
+                    logits,
+                )
                 probs = torch.softmax(logits / 0.1, dim=-1)
                 m = torch.distributions.Categorical(probs)
                 actions = m.sample()
                 log_probs = m.log_prob(actions)
+                # Override: done trajectories take depot (no effect on visited)
+                actions = torch.where(traj_done, torch.zeros_like(actions), actions)
+                # Zero gradient contribution from done trajectories
+                log_probs = torch.where(
+                    traj_done, torch.zeros_like(log_probs), log_probs
+                )
                 log_probs_list.append(log_probs)
                 actions_list.append(actions)
                 step_mask = torch.zeros(B, N, dtype=torch.bool, device=self.device)
                 step_mask.scatter_(1, actions.unsqueeze(-1), True)
                 visited = visited | step_mask
                 visited[:, :num_depots] = depot_mask[:, :num_depots]
-                if visited.all() or step >= N * 2 - 1:
-                    break
-        log_probs = torch.stack(log_probs_list, dim=1)
-        actions_seq = torch.stack(actions_list, dim=1)
-        n_customers = N - num_depots
-        coverage = visited[:, num_depots:].float().mean(dim=1)
+                traj_done = traj_done | visited.all(dim=-1)
+        log_probs = torch.stack(log_probs_list, dim=1)  # [B, T]
+        actions_seq = torch.stack(actions_list, dim=1)  # [B, T]
+        # Reward = negative normalized route distance (minimize route length)
         prev = actions_seq[:, :-1]
         nxt = actions_seq[:, 1:]
-        route_dist = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
-        route_dist = route_dist.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+        # route_dist[b] = sum_t dist_mat[b, prev[b,t], nxt[b,t]]
+        row = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
+        route_dist = row.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
         max_dist = math.sqrt(2.0) * N
-        dist_penalty = (route_dist / max_dist).clamp(0, 1)
-        reward_per_traj = (coverage - dist_penalty * 0.5).to(self.device)
-        rewards = reward_per_traj.unsqueeze(1).expand(-1, log_probs.size(1))
-        baseline = rewards.mean(dim=1, keepdim=True)
-        advantage = rewards - baseline
-        loss = -(log_probs * advantage.detach()).mean()
+        cost = route_dist / max_dist  # normalized cost in [0, roughly 1]
+        # REINFORCE: advantage = -(cost - mean_cost), i.e. lower cost = better
+        baseline = cost.mean()
+        advantage = -(cost - baseline)  # [B], positive for better-than-average
+        # Expand advantage to match log_probs timesteps
+        adv = advantage.unsqueeze(1).expand(-1, log_probs.size(1))
+        loss = -(log_probs * adv.detach()).mean()
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
             self.policy.parameters(), self.cfg["training"]["max_grad_norm"]
         )
         self.optimizer.step()
-        return loss.item()
+        loss_val = loss.item()
+        if not math.isfinite(loss_val):
+            print(f"  WARNING: non-finite loss {loss_val}, skipping batch")
+        return loss_val
 
     def save_checkpoint(self, path: str):
         os.makedirs(os.path.dirname(path), exist_ok=True)
