@@ -288,7 +288,7 @@ class POMOTrainer:
             cum_loss += loss_t.item()
             cum_ent += ent_t.mean().item()
             loss_t = (loss_t - entropy_beta * ent_t.mean()) / T
-            loss_t.backward()
+            loss_t.backward(retain_graph=(t < T - 1))
             step_mask = torch.zeros(B * K, N, dtype=torch.bool, device=self.device)
             step_mask.scatter_(1, action_t.unsqueeze(-1), True)
             visited = visited | step_mask
