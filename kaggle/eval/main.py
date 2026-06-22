@@ -7,8 +7,6 @@ subprocess.run(
         "pip",
         "install",
         "-q",
-        "torch==2.3.1",
-        "torch-geometric",
         "numpy",
         "scipy",
         "matplotlib",
