@@ -47,12 +47,64 @@ device = "cuda"
 print(f"Device: {device}")
 
 policy = build_policy(cfg)
+policy.to(device)
+policy.train()
+
+# Sanity check: ensure gradients flow through a forward+backward pass
+print("Running gradient sanity check...")
+with torch.no_grad():
+    dummy_coords = torch.randn(2, 10, 2, device=device)
+    dummy_dist = torch.rand(2, 10, 10, device=device).abs() * 2
+    dummy_depot = torch.zeros(2, 10, dtype=torch.bool, device=device)
+    dummy_depot[:, 0] = True
+    dummy_demand = torch.rand(2, 10, device=device) * 10
+    dummy_tw_s = torch.zeros(2, 10, device=device)
+    dummy_tw_e = torch.full((2, 10), 480.0, device=device)
+    dummy_vis = dummy_depot.clone()
+    logits = policy(
+        dummy_coords,
+        dummy_dist,
+        dummy_dist,
+        dummy_depot,
+        dummy_demand,
+        dummy_tw_s,
+        dummy_tw_e,
+        visited_mask=dummy_vis,
+        return_logits=True,
+    )
+    print(
+        f"  Logits ok: shape={logits.shape}, min={logits.min().item():.2f}, max={logits.max().item():.2f}, has_nan={torch.isnan(logits).any().item()}"
+    )
+
+test_logits = torch.randn(2, 10, device=device, requires_grad=True)
+m = torch.distributions.Categorical(logits=test_logits)
+a = m.sample()
+lp = m.log_prob(a)
+lp.mean().backward()
+print(
+    f"  Categorical(logits=...) gradient ok: grad_norm={test_logits.grad.norm().item():.4f}"
+)
+
+del dummy_coords, dummy_dist, test_logits
+
 trainer = POMOTrainer(policy, cfg, device)
 num_epochs = cfg["training"]["num_epochs"]
 
 for epoch in range(num_epochs):
     loss = trainer.train_epoch()
     print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.6f}")
+    # Log parameter change to verify learning
+    total_norm = sum(p.norm().item() ** 2 for p in policy.parameters()) ** 0.5
+    grad_norm = (
+        sum(
+            p.grad.norm().item() ** 2 for p in policy.parameters() if p.grad is not None
+        )
+        ** 0.5
+        if epoch == 0
+        else 0
+    )
+    if epoch == 0:
+        print(f"  init: param_norm={total_norm:.2f}, grad_norm={grad_norm:.6f}")
     if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
         trainer.save_checkpoint(
             f"/kaggle/working/checkpoints/dana_epoch_{epoch + 1}.pt"

@@ -174,20 +174,14 @@ class POMOTrainer:
                 )
                 # Policy internal decoder already masks visited; mask again for safety
                 logits = logits.masked_fill(visited, float("-inf"))
-                # Prevent NaN: for done trajectories (all visited), use zero logits
-                logits = torch.where(
-                    traj_done.unsqueeze(-1),
-                    torch.zeros_like(logits),
-                    logits,
-                )
-                probs = torch.softmax(logits, dim=-1)
-                m = torch.distributions.Categorical(probs)
+                # Use logits directly (more numerically stable than probs)
+                m = torch.distributions.Categorical(logits=logits)
                 actions = m.sample()
                 log_probs = m.log_prob(actions)
                 entropies_list.append(m.entropy())
                 # Override: done trajectories take depot (no effect on visited)
                 actions = torch.where(traj_done, torch.zeros_like(actions), actions)
-                # Zero gradient contribution from done trajectories
+                # Zero gradient for done trajectories (they don't contribute to learning)
                 log_probs = torch.where(
                     traj_done, torch.zeros_like(log_probs), log_probs
                 )
