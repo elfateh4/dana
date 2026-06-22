@@ -90,6 +90,12 @@ if ckpt_files:
     print(f"Loading DANA checkpoint: {latest_ckpt}")
     from dana.train import build_policy
 
+    # Match training config overrides (v32+)
+    cfg["model"]["num_encoder_layers"] = 4
+    cfg["model"]["num_decoder_layers"] = 2
+    cfg["model"]["feedforward_dim"] = 256
+    cfg["data"]["num_locations"] = 50
+
     dana_policy = build_policy(cfg).to(device)
     dana_policy.eval()
     ckpt = torch.load(latest_ckpt, map_location=device)
