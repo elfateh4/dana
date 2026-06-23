@@ -36,3 +36,6 @@ reports/
 # Kaggle API
 ~/.kaggle/
 
+# Reference papers (too large for git — 300+ MB PDFs)
+papers/
+
