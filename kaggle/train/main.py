@@ -1,7 +1,6 @@
 import json, os, shutil, subprocess, sys, yaml
 
-# Install official PyTorch CUDA 12.1 build (includes sm_60 for P100, sm_75 for T4)
-# Kaggle's default PyTorch is a custom build that may lack sm_60 support
+# Install PyTorch with CUDA 11.8 build (supports sm_60 for P100 AND sm_75 for T4)
 subprocess.run(
     [
         "pip",
@@ -9,7 +8,7 @@ subprocess.run(
         "-q",
         "torch",
         "--index-url",
-        "https://download.pytorch.org/whl/cu121",
+        "https://download.pytorch.org/whl/cu118",
         "--force-reinstall",
     ],
     check=True,
