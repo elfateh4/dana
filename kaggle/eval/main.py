@@ -31,6 +31,7 @@ subprocess.run(
         "networkx",
         "pyvrp",
         "ortools",
+        "requests",
     ],
     check=True,
 )
@@ -50,6 +51,7 @@ subprocess.run(
         "networkx",
         "pyvrp",
         "ortools",
+        "requests",
     ],
     check=True,
 )
@@ -64,17 +66,179 @@ if not os.path.exists(REPO_DIR):
 os.chdir(REPO_DIR)
 sys.path.insert(0, REPO_DIR)
 
-INSTANCE_DIR = "/kaggle/input/dana-benchmarks"
-assert os.path.exists(INSTANCE_DIR), (
-    f"Benchmark dataset not found at {INSTANCE_DIR}. "
-    "Ensure elfateh/dana-benchmarks is in kernel-metadata.json dataset_sources."
-)
+KAGGLE_CKPT_DIR = "/kaggle/input/dana-checkpoints"
+INSTANCE_DIR = "/kaggle/working/instances"
+if not os.path.exists(INSTANCE_DIR):
+    os.makedirs(INSTANCE_DIR, exist_ok=True)
+    print("Downloading benchmark instances from PyVRP/Instances...")
 
-CKPT_DIR = "/kaggle/input/dana-checkpoints"
-assert os.path.exists(CKPT_DIR), (
-    f"Checkpoint dataset not found at {CKPT_DIR}. "
-    "Ensure elfateh/dana-checkpoints is in kernel-metadata.json dataset_sources."
+    def _download_instances():
+        import requests
+
+        BASE_URL = "https://raw.githubusercontent.com/PyVRP/Instances/main"
+        sets = {
+            "cordeau": (
+                "MDVRPTW",
+                [f"PR{i}{s}" for i in range(11, 25) for s in ("A", "B")],
+            ),
+            "solomon": (
+                "VRPTW/Solomon",
+                [
+                    "C101",
+                    "C102",
+                    "C103",
+                    "C104",
+                    "C105",
+                    "C106",
+                    "C107",
+                    "C108",
+                    "C109",
+                    "C201",
+                    "C202",
+                    "C203",
+                    "C204",
+                    "C205",
+                    "C206",
+                    "C207",
+                    "C208",
+                    "R101",
+                    "R102",
+                    "R103",
+                    "R104",
+                    "R105",
+                    "R106",
+                    "R107",
+                    "R108",
+                    "R109",
+                    "R110",
+                    "R111",
+                    "R112",
+                    "R201",
+                    "R202",
+                    "R203",
+                    "R204",
+                    "R205",
+                    "R206",
+                    "R207",
+                    "R208",
+                    "R209",
+                    "R210",
+                    "R211",
+                    "RC101",
+                    "RC102",
+                    "RC103",
+                    "RC104",
+                    "RC105",
+                    "RC106",
+                    "RC107",
+                    "RC108",
+                    "RC201",
+                    "RC202",
+                    "RC203",
+                    "RC204",
+                    "RC205",
+                    "RC206",
+                    "RC207",
+                    "RC208",
+                ],
+            ),
+            "gehring": (
+                "VRPTW",
+                [
+                    f"{t}{n}_10_{i}"
+                    for t in ("C", "R", "RC")
+                    for n in (1, 2)
+                    for i in range(1, 11)
+                ],
+            ),
+            "x_instances": (
+                "CVRP",
+                [
+                    "X-n101-k25",
+                    "X-n106-k14",
+                    "X-n110-k13",
+                    "X-n115-k10",
+                    "X-n120-k6",
+                    "X-n125-k30",
+                    "X-n129-k18",
+                    "X-n134-k13",
+                    "X-n139-k10",
+                    "X-n143-k7",
+                    "X-n153-k22",
+                    "X-n157-k13",
+                    "X-n162-k11",
+                    "X-n167-k10",
+                    "X-n176-k26",
+                    "X-n181-k23",
+                    "X-n186-k15",
+                    "X-n190-k8",
+                    "X-n195-k51",
+                    "X-n200-k36",
+                    "X-n204-k19",
+                    "X-n209-k16",
+                    "X-n214-k11",
+                    "X-n219-k73",
+                    "X-n223-k34",
+                    "X-n228-k23",
+                    "X-n233-k16",
+                    "X-n237-k14",
+                    "X-n242-k48",
+                    "X-n247-k50",
+                ],
+            ),
+        }
+        for name, (remote_dir, files) in sets.items():
+            dest = os.path.join(INSTANCE_DIR, name)
+            os.makedirs(dest, exist_ok=True)
+            ok, fail = 0, 0
+            for fname in files:
+                url = f"{BASE_URL}/{remote_dir}/{fname}.vrp"
+                path = os.path.join(dest, f"{fname}.vrp")
+                if os.path.exists(path):
+                    ok += 1
+                    continue
+                try:
+                    r = requests.get(url, timeout=30)
+                    if r.status_code == 200:
+                        with open(path, "w") as f:
+                            f.write(r.text)
+                        ok += 1
+                    else:
+                        fail += 1
+                except Exception:
+                    fail += 1
+            print(f"  {name}: {ok} ok, {fail} failed")
+
+    _download_instances()
+    print("Download complete.")
+
+# Checkpoint: check Kaggle mount or download via API
+CKPT_DIR = (
+    KAGGLE_CKPT_DIR
+    if os.path.exists(KAGGLE_CKPT_DIR)
+    else "/kaggle/working/checkpoints_download"
 )
+if not os.path.exists(CKPT_DIR):
+    os.makedirs(CKPT_DIR, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "kaggle",
+                "datasets",
+                "download",
+                "elfateh/dana-checkpoints",
+                "--unzip",
+                "-p",
+                CKPT_DIR,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        print(f"Downloaded checkpoints to {CKPT_DIR}")
+    except Exception as e:
+        print(f"Could not download checkpoints via API: {e}")
+        CKPT_DIR = None
 
 os.makedirs("reports", exist_ok=True)
 os.makedirs("/kaggle/working/results", exist_ok=True)
@@ -84,7 +248,7 @@ with open("configs/dana.yaml") as f:
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-ckpt_files = sorted(glob.glob(os.path.join(CKPT_DIR, "*.pt")))
+ckpt_files = sorted(glob.glob(os.path.join(CKPT_DIR, "*.pt"))) if CKPT_DIR else []
 if ckpt_files:
     latest_ckpt = ckpt_files[-1]
     print(f"Loading DANA checkpoint: {latest_ckpt}")
