@@ -10,7 +10,6 @@
   "enable_internet": true,
   "machine_shape": "n1-highmem-2",
   "dataset_sources": [
-    "elfateh/dana-benchmarks",
     "elfateh/dana-checkpoints"
   ],
   "competition_sources": [],
