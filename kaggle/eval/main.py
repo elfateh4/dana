@@ -212,32 +212,24 @@ if not os.path.exists(INSTANCE_DIR):
     _download_instances()
     print("Download complete.")
 
-# Checkpoint: check Kaggle mount or download via API
+# Checkpoint: check Kaggle mount or download via kagglehub
 CKPT_DIR = (
     KAGGLE_CKPT_DIR
     if os.path.exists(KAGGLE_CKPT_DIR)
     else "/kaggle/working/checkpoints_download"
 )
-if not os.path.exists(CKPT_DIR):
+if not os.path.exists(CKPT_DIR) or not glob.glob(os.path.join(CKPT_DIR, "*.pt")):
     os.makedirs(CKPT_DIR, exist_ok=True)
     try:
-        subprocess.run(
-            [
-                "kaggle",
-                "datasets",
-                "download",
-                "elfateh/dana-checkpoints",
-                "--unzip",
-                "-p",
-                CKPT_DIR,
-            ],
-            check=True,
-            capture_output=True,
-            timeout=120,
-        )
-        print(f"Downloaded checkpoints to {CKPT_DIR}")
+        import kagglehub
+
+        path = kagglehub.dataset_download("elfateh/dana-checkpoints")
+        print(f"Downloaded checkpoints via kagglehub to {path}")
+        # kagglehub returns root dir; copy .pt files to our CKPT_DIR
+        for f in glob.glob(os.path.join(path, "*.pt")):
+            shutil.copy(f, CKPT_DIR)
     except Exception as e:
-        print(f"Could not download checkpoints via API: {e}")
+        print(f"Could not download checkpoints via kagglehub: {e}")
         CKPT_DIR = None
 
 os.makedirs("reports", exist_ok=True)
