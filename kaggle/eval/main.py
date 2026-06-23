@@ -439,8 +439,17 @@ for bench_name, bench_info in benchmarks.items():
             summary[solver] = s
     all_results[bench_name] = summary
 
-    stats = evaluate_solver_set(
-        {s: {"costs": d["costs"]} for s, d in results.items()}, reference_solver="hgs"
+    valid = {s: {"costs": d["costs"]} for s, d in results.items() if d["costs"]}
+    ref_solver = "hgs" if "hgs" in valid else next(iter(valid), None)
+    stats = (
+        evaluate_solver_set(valid, reference_solver=ref_solver)
+        if ref_solver
+        else {
+            "reference_solver": None,
+            "comparisons": {},
+            "alpha": 0.05,
+            "error": "No solver produced results",
+        }
     )
     generate_report(summary, stats, bench_name, output_dir="/kaggle/working/results")
 

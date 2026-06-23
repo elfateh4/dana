@@ -66,12 +66,43 @@ def evaluate_solver_set(
     reference_solver: str,
     alpha: float = 0.05,
 ) -> Dict:
-    ref_costs = results[reference_solver]["costs"]
+    if reference_solver not in results:
+        return {
+            "reference_solver": reference_solver,
+            "comparisons": {},
+            "alpha": alpha,
+            "error": f"Reference solver {reference_solver} not in results",
+        }
+    ref_costs = results[reference_solver].get("costs", [])
+    if not ref_costs:
+        return {
+            "reference_solver": reference_solver,
+            "comparisons": {},
+            "alpha": alpha,
+            "error": f"Reference solver {reference_solver} has no results",
+        }
     comparisons = {}
     for solver, data in results.items():
         if solver == reference_solver:
             continue
-        comp = wilcoxon_signed_rank(ref_costs, data["costs"], alternative="less")
+        costs = data.get("costs", [])
+        if not costs:
+            comparisons[solver] = {
+                "statistic": None,
+                "p_value": None,
+                "significant": None,
+                "error": f"No results for {solver}",
+            }
+            continue
+        if len(costs) != len(ref_costs):
+            comparisons[solver] = {
+                "statistic": None,
+                "p_value": None,
+                "significant": None,
+                "error": f"Length mismatch: reference has {len(ref_costs)}, {solver} has {len(costs)}",
+            }
+            continue
+        comp = wilcoxon_signed_rank(ref_costs, costs, alternative="less")
         comparisons[solver] = comp
     raw_p = [
         comp["p_value"] for comp in comparisons.values() if comp["p_value"] is not None
