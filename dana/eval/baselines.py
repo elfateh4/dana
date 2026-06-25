@@ -17,19 +17,45 @@ class BaselineRunner:
     ) -> Dict:
         result = {"solver": "pyvrp", "instance": instance_file, "problem": problem_type}
         try:
-            import pyvrp
-            from pyvrp import Model, read
+            from pyvrp import read, Model
+            from pyvrp.stop import MaxRuntime
+            import math
 
-            model = read(
-                instance_file,
-                instance_format="solomon" if problem_type == "vrptw" else "cordeau",
+            data = read(instance_file)
+            model = Model.from_data(data)
+            result_obj = model.solve(
+                stop=MaxRuntime(self.time_limit), seed=seed, display=False
             )
-            model.add_depot(0)
-            result_obj = model.solve(time_limit=self.time_limit, seed=seed)
-            result["cost"] = result_obj.cost()
+            result["cost_pyvrp"] = result_obj.cost()
             result["feasible"] = result_obj.is_feasible()
             result["time"] = result_obj.runtime
             result["status"] = "success"
+
+            # Compute raw Euclidean cost from solution routes
+            best = result_obj.best
+            num_depots = data.num_depots
+            depots = data.depots()
+            clients = data.clients()
+            # Build location-indexed coords: [0..num_depots-1] = depots, [num_depots..] = clients
+            loc_coords = [(d.x, d.y) for d in depots] + [(c.x, c.y) for c in clients]
+
+            def loc_dist(i, j):
+                dx = loc_coords[i][0] - loc_coords[j][0]
+                dy = loc_coords[i][1] - loc_coords[j][1]
+                return math.sqrt(dx * dx + dy * dy)
+
+            raw_cost = 0.0
+            for route in best.routes():
+                visits = list(route.visits())
+                if not visits:
+                    continue
+                start_depot = int(route.start_depot())
+                end_depot = int(route.end_depot())
+                raw_cost += loc_dist(start_depot, visits[0])
+                for i in range(len(visits) - 1):
+                    raw_cost += loc_dist(visits[i], visits[i + 1])
+                raw_cost += loc_dist(visits[-1], end_depot)
+            result["cost"] = raw_cost
         except Exception as e:
             result["status"] = "error"
             result["error"] = str(e)
@@ -194,7 +220,7 @@ class BaselineRunner:
             for j in range(n):
                 dx = data["locations"][i][0] - data["locations"][j][0]
                 dy = data["locations"][i][1] - data["locations"][j][1]
-                dist_mat[i][j] = int((dx**2 + dy**2) ** 0.5 * 1000)
+                dist_mat[i][j] = int((dx**2 + dy**2) ** 0.5)
         data["distance_matrix"] = dist_mat
         return data
 

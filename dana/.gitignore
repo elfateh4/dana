@@ -1,0 +1,38 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kaggle credentials
+.kaggle/
+kaggle.json
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Data downloads
+data/downloads/
+*.zip
+*.gz
+
+# Reports
+reports/
+*.html
+*.csv
+
+# Kaggle API
+~/.kaggle/
+
