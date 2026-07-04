@@ -2,39 +2,19 @@ import glob, os, shutil, sys, subprocess, json, yaml
 import numpy as np
 import torch
 
-# Install PyTorch with CUDA 11.8 build (supports sm_60 for P100 AND sm_75 for T4)
-subprocess.run(
-    [
-        "pip",
-        "install",
-        "-q",
-        "torch",
-        "--index-url",
-        "https://download.pytorch.org/whl/cu118",
-        "--force-reinstall",
-    ],
-    check=True,
-)
-subprocess.run(
-    [
-        "pip",
-        "install",
-        "-q",
-        "numpy",
-        "scipy",
-        "matplotlib",
-        "tqdm",
-        "pyyaml",
-        "scikit-learn",
-        "pandas",
-        "kagglehub",
-        "networkx",
-        "pyvrp",
-        "ortools",
-        "requests",
-    ],
-    check=True,
-)
+if torch.cuda.is_available():
+    subprocess.run(
+        [
+            "pip",
+            "install",
+            "-q",
+            "torch",
+            "--index-url",
+            "https://download.pytorch.org/whl/cu118",
+            "--force-reinstall",
+        ],
+        check=True,
+    )
 subprocess.run(
     [
         "pip",
@@ -64,7 +44,7 @@ if not os.path.exists(REPO_DIR):
         ["git", "clone", "--depth", "1", REPO, REPO_DIR], check=True, env=env
     )
 os.chdir(REPO_DIR)
-sys.path.insert(0, REPO_DIR)
+sys.path.insert(0, os.path.join(REPO_DIR, 'model'))
 
 KAGGLE_CKPT_DIR = "/kaggle/input/dana-checkpoints"
 INSTANCE_DIR = "/kaggle/working/instances"
@@ -244,7 +224,7 @@ ckpt_files = sorted(glob.glob(os.path.join(CKPT_DIR, "*.pt"))) if CKPT_DIR else 
 if ckpt_files:
     latest_ckpt = ckpt_files[-1]
     print(f"Loading DANA checkpoint: {latest_ckpt}")
-    from dana.train import build_policy
+    from train import build_policy
 
     # Match training config overrides (v32+)
     cfg["model"]["num_encoder_layers"] = 4
@@ -305,11 +285,11 @@ if not os.path.exists(LKH_BIN):
         subprocess.run(["cp", "/tmp/LKH-3.0.9/LKH", LKH_BIN], check=True)
     except Exception as e:
         print(f"LKH-3 install failed (non-critical): {e}")
+from eval.baselines import BaselineRunner
 
-from dana.eval.baselines import BaselineRunner
-from dana.eval.metrics import compute_gap, evaluate_solver_set, compute_summary
-from dana.eval.plots import generate_report
+from eval.metrics import compute_gap, evaluate_solver_set, compute_summary
 
+from eval.plots import generate_report
 
 def parse_vrp_coords(path: str) -> np.ndarray:
     coords, section = [], False
