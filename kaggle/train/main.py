@@ -41,7 +41,7 @@ if not os.path.exists(REPO_DIR):
         ["git", "clone", "--depth", "1", REPO, REPO_DIR], check=True, env=env
     )
 os.chdir(REPO_DIR)
-sys.path.insert(0, REPO_DIR)
+sys.path.insert(0, os.path.join(REPO_DIR, 'model'))
 
 with open("configs/dana.yaml") as f:
     cfg = yaml.safe_load(f)
@@ -60,7 +60,7 @@ cfg["model"]["num_decoder_layers"] = 2
 cfg["model"]["feedforward_dim"] = 256
 cfg["data"]["num_locations"] = 50
 
-from dana.train import build_policy, POMOTrainer
+from train import build_policy, POMOTrainer
 
 device = "cuda"
 print(f"Device: {device}")

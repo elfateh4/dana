@@ -8,11 +8,11 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
-from dana.models.encoder import GraphEncoder
-from dana.models.context import DynamicContext
-from dana.models.policy import RouteDecoder, DisasterPolicy
-from dana.envs.mdvrptw_env import DisasterMDVRPTWEnv
-from dana.data.osm_loader import CityRotation, city_to_tensor_dict, get_city_lists
+from models.encoder import GraphEncoder
+from models.context import DynamicContext
+from models.policy import RouteDecoder, DisasterPolicy
+from envs.mdvrptw_env import DisasterMDVRPTWEnv
+from data.osm_loader import CityRotation, city_to_tensor_dict, get_city_lists
 
 
 def synthetic_city_to_tensor_dict(
