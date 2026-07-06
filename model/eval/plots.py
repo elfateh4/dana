@@ -27,16 +27,18 @@ def performance_chart(
             label=solver,
             zorder=5,
         )
-        if "gaps" in data and "times" in data:
-            ax.scatter(
-                data["times"],
-                data["gaps"],
-                marker=markers[idx % len(markers)],
-                color=colors[idx],
-                s=20,
-                alpha=0.3,
-                zorder=3,
-            )
+        if data.get("gaps") and data.get("times"):
+            gaps, times = np.array(data["gaps"]), np.array(data["times"])
+            if gaps.size == times.size:
+                ax.scatter(
+                    times,
+                    gaps,
+                    marker=markers[idx % len(markers)],
+                    color=colors[idx],
+                    s=20,
+                    alpha=0.3,
+                    zorder=3,
+                )
     ax.set_xlabel("Average Normalized Time (PassMark)")
     ax.set_ylabel("Average Gap (%)")
     ax.set_title(title)

@@ -405,8 +405,7 @@ for bench_name, bench_info in benchmarks.items():
         for solver, result in baselines.items():
             if result.get("cost") is not None:
                 results[solver]["costs"].append(result["cost"])
-                if result.get("time"):
-                    results[solver]["times"].append(result["time"])
+                results[solver]["times"].append(result.get("time", 0) or 0)
 
     best = min(min(v["costs"]) for v in results.values() if v["costs"]) or 1.0
     summary = {}
