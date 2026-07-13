@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "project": {
+    "name": "dana",
+    "initialized": "2026-07-01T07:35:23.967Z"
+  },
+  "workflow": {
+    "currentPhase": null,
+    "phase": "idle",
+    "mode": "standard",
+    "depth": "standard",
+    "researchOptIn": false,
+    "specLocked": false,
+    "acceptanceConfirmed": false,
+    "interviewComplete": false,
+    "interviewCompletedAt": null,
+    "currentWave": 0,
+    "totalWaves": 0,
+    "lastActivity": "2026-07-06T14:49:24.736Z",
+    "status": "idle"
+  },
+  "execution": {
+    "activeCheckpointId": null,
+    "completedPhases": [],
+    "pendingTasks": []
+  }
+}
