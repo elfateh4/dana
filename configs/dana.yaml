@@ -4,10 +4,12 @@
 model:
   embedding_dim: 128
   num_encoder_layers: 12
-  num_decoder_layers: 3
+  num_decoder_layers: 1   # RRNCO decoder: single-query MHA block
   num_heads: 8
   feedforward_dim: 512
   dropout: 0.1
+  sample_k: 25            # inverse-distance sampling (RRNCO Eq. 4, k=25)
+  edge_dim: 16            # per-edge embedding dim for Neural Adaptive Bias
 
 training:
   batch_size: 256
@@ -22,7 +24,7 @@ training:
 
 pomo:
   num_starts: 8
-  num_augmentations: 2
+  num_augmentations: 8   # dihedral x8 augmentation (RRNCO testing protocol)
 
 reward:
   alpha_response: 0.4

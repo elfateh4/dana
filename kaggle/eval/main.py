@@ -330,6 +330,9 @@ def run_dana_on_instance(policy, vrp_path: str, device: str, cfg: dict) -> dict:
         tw_end = torch.full((B, N), 480.0, dtype=torch.float, device=device)
         visited = depot_mask.clone()
         actions = []
+        # Track the last visited node: the decoder conditions on it (RRNCO Eq. 12
+        # context and the -log(dist) heuristic in Eq. 15).
+        last_node = torch.zeros(B, dtype=torch.long, device=device)
         with torch.no_grad():
             for _ in range(cfg["environment"]["max_vehicles"]):
                 if visited.all():
@@ -345,10 +348,12 @@ def run_dana_on_instance(policy, vrp_path: str, device: str, cfg: dict) -> dict:
                         tw_end,
                         visited_mask=visited,
                         return_logits=True,
+                        last_node=last_node,
                     )
                     logits = logits.masked_fill(visited, float("-inf"))
                     a = logits.argmax(dim=-1)
                     actions.append(a)
+                    last_node = a
                     step_mask = torch.zeros(B, N, dtype=torch.bool, device=device)
                     step_mask.scatter_(1, a.unsqueeze(-1), True)
                     visited = visited | step_mask

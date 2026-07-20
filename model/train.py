@@ -18,14 +18,26 @@ from data.osm_loader import CityRotation, city_to_tensor_dict, get_city_lists
 def synthetic_city_to_tensor_dict(
     num_locations: int, num_depots: int = 1, rng=None
 ) -> dict:
+    """Random synthetic instance with ASYMMETRIC distance/duration matrices.
+
+    Real road networks yield d_ij != d_ji (one-way streets, turn restrictions),
+    so the synthetic fallback perturbs the Euclidean base with independent
+    directional noise, and durations get their own noise (traffic patterns
+    differ from geometry).
+    """
     if rng is None:
         rng = np.random.default_rng()
     points = torch.tensor(rng.uniform(0, 1, (num_locations, 2)), dtype=torch.float)
     coords = points.numpy()
     diff = coords[:, None] - coords[None, :]
-    dist = np.sqrt((diff**2).sum(axis=-1))
+    base = np.sqrt((diff**2).sum(axis=-1))
+    # Independent directional perturbations -> asymmetric matrices
+    dist = base * (1.0 + rng.uniform(0.0, 0.2, base.shape))
+    dur = base * (1.0 + rng.uniform(0.0, 0.5, base.shape))
+    np.fill_diagonal(dist, 0.0)
+    np.fill_diagonal(dur, 0.0)
     dist_mat = torch.tensor(dist, dtype=torch.float)
-    dur_mat = dist_mat.clone()
+    dur_mat = torch.tensor(dur, dtype=torch.float)
     depot_mask = torch.zeros(num_locations, dtype=torch.bool)
     depot_mask[:num_depots] = True
     demand = torch.tensor(rng.uniform(1, 10, (num_locations,)), dtype=torch.float)
@@ -44,6 +56,21 @@ def synthetic_city_to_tensor_dict(
     }
 
 
+def dihedral_augment(coords: torch.Tensor, aug_idx: int) -> torch.Tensor:
+    """One of the 8 dihedral symmetries of the unit square (POMO-style aug).
+
+    Valid for real (matrix-based) instances too: distances/durations come from
+    the matrices, which are invariant; only the coordinate features transform.
+    """
+    x, y = coords[..., 0], coords[..., 1]
+    variants = [
+        (x, y), (y, x), (1 - x, y), (y, 1 - x),
+        (x, 1 - y), (1 - y, x), (1 - x, 1 - y), (1 - y, 1 - x),
+    ]
+    vx, vy = variants[aug_idx % 8]
+    return torch.stack([vx, vy], dim=-1)
+
+
 def load_config(config_path: str = "configs/dana.yaml") -> dict:
     with open(config_path) as f:
         return yaml.safe_load(f)
@@ -56,6 +83,8 @@ def build_policy(cfg: dict) -> DisasterPolicy:
         num_layers=cfg["model"]["num_encoder_layers"],
         feedforward_dim=cfg["model"]["feedforward_dim"],
         dropout=cfg["model"]["dropout"],
+        sample_k=cfg["model"].get("sample_k", 25),
+        edge_dim=cfg["model"].get("edge_dim", 16),
     )
     context_module = DynamicContext(
         embedding_dim=cfg["model"]["embedding_dim"],
@@ -64,7 +93,7 @@ def build_policy(cfg: dict) -> DisasterPolicy:
     decoder = RouteDecoder(
         embedding_dim=cfg["model"]["embedding_dim"],
         num_heads=cfg["model"]["num_heads"],
-        num_layers=cfg["model"].get("num_decoder_layers", 3),
+        num_layers=cfg["model"].get("num_decoder_layers", 1),
     )
     return DisasterPolicy(
         encoder, context_module, decoder, embedding_dim=cfg["model"]["embedding_dim"]
@@ -99,7 +128,36 @@ class POMOTrainer:
             print(f"City rotation init failed — using synthetic instances: {e}")
             self.synthetic_mode = True
         self.num_starts = cfg["pomo"]["num_starts"]
-        self.num_aug = cfg["pomo"]["num_augmentations"]
+        self.num_aug = max(1, min(cfg["pomo"]["num_augmentations"], 8))
+        self.scheduler, self.scheduler_step_per = self._build_scheduler()
+
+    def _build_scheduler(self):
+        """LR scheduler per config: 'cosine' (with linear warmup), 'multistep'
+        (paper's MultiStepLR, milestones [180,195], gamma 0.1), or 'none'."""
+        tcfg = self.cfg["training"]
+        name = tcfg.get("lr_scheduler", "none")
+        steps_per_epoch = max(1, tcfg["instances_per_epoch"] // tcfg["batch_size"])
+        if name == "cosine":
+            warmup = tcfg.get("warmup_steps", 0)
+            total = max(1, tcfg["num_epochs"] * steps_per_epoch)
+
+            def lr_lambda(step):
+                if warmup > 0 and step < warmup:
+                    return (step + 1) / warmup
+                progress = (step - warmup) / max(1, total - warmup)
+                return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+            return optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda), "batch"
+        if name == "multistep":
+            return (
+                optim.lr_scheduler.MultiStepLR(
+                    self.optimizer,
+                    milestones=tcfg.get("lr_milestones", [180, 195]),
+                    gamma=tcfg.get("lr_gamma", 0.1),
+                ),
+                "epoch",
+            )
+        return None, None
 
     def train_epoch(self) -> float:
         self.policy.train()
@@ -113,80 +171,95 @@ class POMOTrainer:
             batch_loss = self._train_batch(debug=(batch_idx == 0))
             total_loss += batch_loss
             pbar.set_postfix(loss=batch_loss)
+        if self.scheduler is not None and self.scheduler_step_per == "epoch":
+            self.scheduler.step()
         # Advance city rotation for next epoch (if using OSM data)
         if not self.synthetic_mode:
             self.city_rotation.next_epoch()
         return total_loss / num_batches
 
+    def _load_instance(self) -> dict:
+        num_loc = self.cfg["data"]["num_locations"]
+        num_depots = self.cfg["environment"]["max_depots"]
+        if self.synthetic_mode:
+            return synthetic_city_to_tensor_dict(num_loc, num_depots)
+        try:
+            city = self.city_rotation.get_city()
+            return city_to_tensor_dict(
+                city,
+                num_loc,
+                num_depots,
+                data_root=self.cfg["paths"].get("osm_cache", "data/osm_cache"),
+            )
+        except (FileNotFoundError, OSError):
+            print("City data load failed — falling back to synthetic")
+            self.synthetic_mode = True
+            return synthetic_city_to_tensor_dict(num_loc, num_depots)
+
     def _train_batch(self, debug: bool = False) -> float:
         B = self.cfg["training"]["batch_size"]
         K = self.num_starts
-        num_loc = self.cfg["data"]["num_locations"]
+        A = self.num_aug
         num_depots = self.cfg["environment"]["max_depots"]
         max_vehicles = self.cfg["environment"]["max_vehicles"]
-        if self.synthetic_mode:
-            instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
-        else:
-            try:
-                city = self.city_rotation.get_city()
-                instance = city_to_tensor_dict(
-                    city,
-                    num_loc,
-                    num_depots,
-                    data_root=self.cfg["paths"].get("osm_cache", "data/osm_cache"),
-                )
-            except (FileNotFoundError, OSError):
-                print("City data load failed — falling back to synthetic")
-                self.synthetic_mode = True
-                instance = synthetic_city_to_tensor_dict(num_loc, num_depots)
+        instance = self._load_instance()
         N = instance["coords"].size(0)
-        coords = (
-            instance["coords"]
-            .unsqueeze(0)
-            .expand(B, K, -1, -1)
-            .reshape(B * K, N, 2)
-            .to(self.device)
-        )
-        dist_mat = (
-            instance["distance_matrix"]
-            .unsqueeze(0)
-            .expand(B, K, -1, -1)
-            .reshape(B * K, N, N)
-            .to(self.device)
-        )
-        depot_mask = instance["depot_mask"].unsqueeze(0).expand(B, -1).to(self.device)
-        depot_mask_flat = depot_mask.unsqueeze(1).expand(B, K, -1).reshape(B * K, N)
-        demand = (
-            instance["demand"]
-            .unsqueeze(0)
-            .expand(B, K, -1)
-            .reshape(B * K, N)
-            .to(self.device)
-        )
-        tw_end = (
-            instance["tw_end"]
-            .unsqueeze(0)
-            .expand(B, K, -1)
-            .reshape(B * K, N)
-            .to(self.device)
-        )
-        D = self.cfg["model"]["embedding_dim"]
-        # ------------------------------------------------------------
-        # Single forward pass with grad: encoder once, decoder all steps
-        # ------------------------------------------------------------
+        S = B * K  # decoding streams
+
+        coords0 = instance["coords"].to(self.device)  # [N, 2]
+        dist0 = instance["distance_matrix"].to(self.device)  # [N, N]
+        dur0 = instance["duration_matrix"].to(self.device)  # [N, N]
+        depot_mask0 = instance["depot_mask"].to(self.device)  # [N]
+        demand0 = instance["demand"].to(self.device)  # [N]
+        tw_start0 = instance["tw_start"].to(self.device)  # [N]
+        tw_end0 = instance["tw_end"].to(self.device)  # [N]
+        dist_n0 = dist0 / dist0.amax().clamp(min=1e-9)  # normalized, for Eq. 15
+
         self.optimizer.zero_grad()
-        enc_out = self.policy.encoder(coords, dist_mat)  # [B*K, N, D]
-        enc_out, ctx = self.policy.context_module(
-            enc_out, dist_mat, torch.zeros(B * K, D, device=self.device)
+
+        # ------------------------------------------------------------
+        # Encode once per augmentation variant, expand to decoding streams.
+        # Dihedral transforms change coordinate features (and hence angle
+        # matrices) but not the distance/duration matrices.
+        # ------------------------------------------------------------
+        coords_aug = torch.stack(
+            [dihedral_augment(coords0, a) for a in range(A)], dim=0
+        )  # [A, N, 2]
+        dist_a = dist0.unsqueeze(0).expand(A, N, N)
+        dur_a = dur0.unsqueeze(0).expand(A, N, N)
+        node_feats = DisasterPolicy.build_node_feats(
+            demand0.unsqueeze(0).expand(A, N),
+            tw_start0.unsqueeze(0).expand(A, N),
+            tw_end0.unsqueeze(0).expand(A, N),
+            depot_mask0.unsqueeze(0).expand(A, N),
         )
+        row_a, col_a = self.policy.encoder(coords_aug, dist_a, dur_a, node_feats)
+        D = row_a.size(-1)
+        col_a, ctx_a = self.policy.context_module(
+            col_a, dist_a, torch.zeros(A, D, device=self.device)
+        )
+
+        aug_idx = torch.arange(S, device=self.device) % A
+        row_emb = row_a[aug_idx]  # [S, N, D]
+        col_emb = col_a[aug_idx]
+        ctx = ctx_a[aug_idx]  # [S, D]
+
+        depot_mask_flat = depot_mask0.unsqueeze(0).expand(S, N)
+        demand = demand0.unsqueeze(0).expand(S, N)
+        tw_end = tw_end0.unsqueeze(0).expand(S, N)
+
+        # ------------------------------------------------------------
+        # POMO multi-start rollout with last-node tracking
+        # ------------------------------------------------------------
         visited = depot_mask_flat.clone()
         start_offset = num_depots
-        num_customers = N - num_depots
         start_nodes = (torch.arange(K, device=self.device).repeat(B) + start_offset) % N
         start_nodes = start_nodes.clamp(min=num_depots, max=N - 1)
+        last_node = torch.zeros(S, dtype=torch.long, device=self.device)  # depot 0
+        stream_arange = torch.arange(S, device=self.device)
         log_probs_list = []
         actions_list = []
-        traj_done = torch.zeros(B * K, dtype=torch.bool, device=self.device)
+        traj_done = torch.zeros(S, dtype=torch.bool, device=self.device)
         first_step = True
         for _ in range(max_vehicles):
             if traj_done.all():
@@ -194,19 +267,13 @@ class POMOTrainer:
             for _ in range(N * 2):
                 if traj_done.all():
                     break
-                visit_frac = visited.float().mean(dim=-1)
-                remaining_cap = 1.0 - (demand.float().mean(dim=-1) * visit_frac)
-                unvisited_tw_end = tw_end.float().masked_fill(visited, float("inf"))
-                min_tw_end = unvisited_tw_end.min(dim=-1).values
-                max_tw_end = unvisited_tw_end.max(dim=-1).values
-                tw_urgency = 1.0 - (min_tw_end / (max_tw_end + 1e-8))
-                unvisited_count = (~visited).float().sum(dim=-1) / N
-                vs = torch.stack(
-                    [visit_frac, remaining_cap, tw_urgency, unvisited_count], dim=-1
+                vf = self.policy.compute_vehicle_state(
+                    visited, demand, tw_end, S, N, self.device
                 )
-                vf = self.policy.vehicle_embedding(vs)
-                logits = self.policy.decoder(enc_out, ctx, vf, mask=visited)
-                logits = logits.masked_fill(visited, float("-inf"))
+                dist_row = dist_n0[last_node]  # [S, N]
+                logits = self.policy.decoder(
+                    row_emb, col_emb, ctx, vf, last_node, dist_row, mask=visited
+                )
                 m = torch.distributions.Categorical(logits=logits)
                 if first_step:
                     actions = start_nodes
@@ -218,7 +285,8 @@ class POMOTrainer:
                 log_prob = torch.where(traj_done, torch.zeros_like(log_prob), log_prob)
                 log_probs_list.append(log_prob)
                 actions_list.append(actions)
-                step_mask = torch.zeros(B * K, N, dtype=torch.bool, device=self.device)
+                last_node = actions
+                step_mask = torch.zeros(S, N, dtype=torch.bool, device=self.device)
                 step_mask.scatter_(1, actions.unsqueeze(-1), True)
                 visited = visited | step_mask
                 visited[:, :num_depots] = depot_mask_flat[:, :num_depots]
@@ -226,14 +294,13 @@ class POMOTrainer:
         # ------------------------------------------------------------
         # Log-likelihood: sum of log_probs across all steps (per trajectory)
         # ------------------------------------------------------------
-        log_likelihood = torch.stack(log_probs_list, dim=1).sum(dim=1)  # [B*K]
-        # Cost per trajectory
-        actions_seq = torch.stack(actions_list, dim=1)  # [B*K, T]
+        log_likelihood = torch.stack(log_probs_list, dim=1).sum(dim=1)  # [S]
+        # Cost per trajectory via the (asymmetric) distance matrix
+        actions_seq = torch.stack(actions_list, dim=1)  # [S, T]
         prev = actions_seq[:, :-1]
         nxt = actions_seq[:, 1:]
-        row = dist_mat.gather(1, prev.unsqueeze(-1).expand(-1, -1, N))
-        route_dist = row.gather(2, nxt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
-        cost = route_dist.view(B, K)  # [B, K], raw distance (no normalization)
+        route_dist = dist0[prev, nxt].sum(dim=1)
+        cost = route_dist.view(B, K)  # [B, K]
         # POMO shared baseline: advantage = baseline - cost
         with torch.no_grad():
             baseline = cost.mean(dim=1, keepdim=True)
@@ -245,6 +312,8 @@ class POMOTrainer:
             self.policy.parameters(), self.cfg["training"]["max_grad_norm"]
         )
         self.optimizer.step()
+        if self.scheduler is not None and self.scheduler_step_per == "batch":
+            self.scheduler.step()
         loss_val = reinforce_loss.item()
         if debug:
             with torch.no_grad():
@@ -261,12 +330,13 @@ class POMOTrainer:
                 )
                 clip_val = self.policy.decoder.logit_clip.item()
                 temp_val = self.policy.decoder.logit_temperature.item()
-                ent_val = torch.stack(log_probs_list, dim=1).exp().mean().item()
+                lr_val = self.optimizer.param_groups[0]["lr"]
             print(
                 f"  [debug] cost: mean={cost.mean().item():.4f} std={cost_std:.4f} "
                 f"| adv: [{adv_min:.6f}, {adv_max:.6f}] "
                 f"| ll={log_likelihood.mean().item():.2f} | loss={loss_val:.8f} "
-                f"| grad_norm={grad_norm:.6f} | clip={clip_val:.2f} temp={temp_val:.2f}"
+                f"| grad_norm={grad_norm:.6f} | clip={clip_val:.2f} temp={temp_val:.2f} "
+                f"| lr={lr_val:.2e}"
             )
         if not math.isfinite(loss_val):
             print(f"  WARNING: non-finite loss {loss_val}, skipping batch")
