@@ -1,0 +1,18 @@
+{
+  "id": "elfateh/dana-solver-pyvrp",
+  "title": "DANA Solver PyVRP",
+  "code_file": "02_solver_pyvrp.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "basic",
+  "dataset_sources": [
+    "elfateh/dana-instances"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

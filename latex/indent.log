@@ -1,6 +1,6 @@
 INFO:  latexindent version 3.20.3, 2023-02-19, a script to indent .tex files
        latexindent lives here: /usr/share/texlive/texmf-dist/scripts/latexindent/
-       Sun Jun 21 23:50:29 2026
+       Mon Jun 22 15:20:16 2026
        Filename: /home/elfateh/Projects/nco-framework/latex/paper.tex
 INFO:  Processing switches:
        -s|--silent: Silent mode active (you have used either -s or --silent)
@@ -14,8 +14,9 @@ INFO:  YAML reading settings
        latexindent.pl didn't find indentconfig.yaml or .indentconfig.yaml
        see all possible locations: https://latexindentpl.readthedocs.io/en/latest/sec-appendices.html#indentconfig-options)
 INFO:  Backup procedure (-w flag active):
-       copying /home/elfateh/Projects/nco-framework/latex/paper.tex to /home/elfateh/Projects/nco-framework/latex/paper.bak0
-       Backup file: /home/elfateh/Projects/nco-framework/latex/paper.bak0
+       /home/elfateh/Projects/nco-framework/latex/paper.bak0 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       copying /home/elfateh/Projects/nco-framework/latex/paper.tex to /home/elfateh/Projects/nco-framework/latex/paper.bak1
+       Backup file: /home/elfateh/Projects/nco-framework/latex/paper.bak1
        /home/elfateh/Projects/nco-framework/latex/paper.tex will be overwritten after indentation
 INFO:  Phase 1: searching for objects
 INFO:  Phase 2: finding surrounding indentation

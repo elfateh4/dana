@@ -50,26 +50,6 @@ def performance_chart(
     plt.close()
 
 
-def convergence_profile(
-    convergence_data: Dict[str, List[float]],
-    title: str = "Convergence Profile",
-    save_path: Optional[str] = None,
-):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    for solver, gaps_over_time in convergence_data.items():
-        times = np.arange(len(gaps_over_time))
-        ax.plot(times, gaps_over_time, label=solver, linewidth=2)
-    ax.set_xlabel("Time Step")
-    ax.set_ylabel("Average Gap (%)")
-    ax.set_title(title)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close()
-
-
 def gap_distribution(
     results: Dict[str, List[float]],
     title: str = "Gap Distribution",

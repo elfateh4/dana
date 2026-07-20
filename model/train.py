@@ -1,18 +1,15 @@
 import math
 import os
-import time
 import yaml
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
 from models.encoder import GraphEncoder
 from models.context import DynamicContext
 from models.policy import RouteDecoder, DisasterPolicy
-from envs.mdvrptw_env import DisasterMDVRPTWEnv
-from data.osm_loader import CityRotation, city_to_tensor_dict, get_city_lists
+from data.osm_loader import CityRotation, city_to_tensor_dict
 
 
 def synthetic_city_to_tensor_dict(
@@ -110,7 +107,6 @@ class POMOTrainer:
             lr=cfg["training"]["learning_rate"],
             weight_decay=cfg["training"]["weight_decay"],
         )
-        self.env = DisasterMDVRPTWEnv()
         # Set up city rotation. Falls back to synthetic if no OSM data available.
         try:
             self.city_rotation = CityRotation(
@@ -356,7 +352,7 @@ class POMOTrainer:
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.device)
-        self.policy.load_state_dict(ckpt["policy_state_dict"])
+        self.policy.load_state_dict(ckpt["policy_state_dict"], strict=False)
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
 

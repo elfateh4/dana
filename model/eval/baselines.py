@@ -2,7 +2,7 @@ import subprocess
 import os
 import tempfile
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 class BaselineRunner:
@@ -31,12 +31,19 @@ class BaselineRunner:
             result["time"] = result_obj.runtime
             result["status"] = "success"
 
-            # Compute raw Euclidean cost from solution routes
+            # Extract routes as 0-based customer indices
             best = result_obj.best
             num_depots = data.num_depots
+            routes = []
+            for route in best.routes():
+                visits = list(route.visits())
+                if visits:
+                    routes.append(visits)
+            result["routes"] = routes
+
+            # Compute raw Euclidean cost from solution routes
             depots = data.depots()
             clients = data.clients()
-            # Build location-indexed coords: [0..num_depots-1] = depots, [num_depots..] = clients
             loc_coords = [(d.x, d.y) for d in depots] + [(c.x, c.y) for c in clients]
 
             def loc_dist(i, j):
@@ -88,6 +95,26 @@ class BaselineRunner:
             result["cost"] = cost
             result["time"] = self.time_limit
             result["status"] = "success" if cost else "no_solution"
+
+            # Parse .sol file (CVRPLib format) for routes
+            routes = []
+            if os.path.isfile(sol_path) and os.path.getsize(sol_path) > 0:
+                try:
+                    with open(sol_path) as f:
+                        lines = f.readlines()
+                    # Line 0: <num_vehicles> <cost> — skip
+                    for line in lines[1:]:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        nodes = [int(x) for x in line.split()]
+                        # CVRPLib format: 1-indexed customer IDs, 0 = route end marker
+                        customers = [n - 1 for n in nodes if n > 0]
+                        if customers:
+                            routes.append(customers)
+                except Exception:
+                    pass
+            result["routes"] = routes
             os.unlink(sol_path)
         except subprocess.TimeoutExpired:
             result["status"] = "timeout"
@@ -107,6 +134,7 @@ class BaselineRunner:
                 "LKH-3 binary not found. Download from http://webhotel4.ruc.dk/~keld/research/LKH-3/"
             )
             return result
+        tour_file = "/tmp/lkh_tour.txt"
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".par", delete=False
@@ -115,8 +143,11 @@ class BaselineRunner:
                 par_f.write(f"RUNS = {self.num_runs}\n")
                 par_f.write(f"SEED = {seed}\n")
                 par_f.write(f"TIME_LIMIT = {self.time_limit}\n")
-                par_f.write("TOUR_FILE = /tmp/lkh_tour.txt\n")
+                par_f.write(f"OUTPUT_TOUR_FILE = {tour_file}\n")
                 par_path = par_f.name
+            # Clean up any previous tour file
+            if os.path.exists(tour_file):
+                os.unlink(tour_file)
             cmd = [lkh_bin, par_path]
             proc = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=self.time_limit + 60
@@ -129,6 +160,41 @@ class BaselineRunner:
                     break
             result["cost"] = cost
             result["status"] = "success" if cost else "no_solution"
+
+            # Parse OUTPUT_TOUR_FILE for routes
+            # LKH-3 outputs a single tour with dummy depot nodes (value 1)
+            # marking route boundaries. Nodes > dimension are also depots.
+            routes = []
+            if os.path.isfile(tour_file) and os.path.getsize(tour_file) > 0:
+                try:
+                    with open(tour_file) as f:
+                        lines = f.readlines()
+                    # Read the tour as a sequence of 1-indexed node IDs
+                    tour = []
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            tour.append(int(line))
+                        except ValueError:
+                            continue
+                    # Split at depot visits (node == 1) to get routes
+                    current_route = []
+                    for node in tour:
+                        if node == 1:
+                            if current_route:
+                                routes.append(current_route)
+                                current_route = []
+                        else:
+                            # Customer node: convert 1-indexed to 0-based
+                            # (node 2 = customer 0, node 3 = customer 1, etc.)
+                            current_route.append(node - 2)
+                    if current_route:
+                        routes.append(current_route)
+                except Exception:
+                    pass
+            result["routes"] = routes
             os.unlink(par_path)
         except subprocess.TimeoutExpired:
             result["status"] = "timeout"
@@ -149,9 +215,10 @@ class BaselineRunner:
             from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
             data = self._load_ortools_data(instance_file, problem_type)
-            manager = pywrapcp.RoutingIndexManager(
-                len(data["locations"]), data["num_vehicles"], data["depot"]
-            )
+            num_nodes = len(data["locations"])
+            num_vehicles = data["num_vehicles"]
+            depot = data["depot"]
+            manager = pywrapcp.RoutingIndexManager(num_nodes, num_vehicles, depot)
             routing = pywrapcp.RoutingModel(manager)
 
             def distance_callback(from_idx, to_idx):
@@ -173,6 +240,20 @@ class BaselineRunner:
                 cost = solution.ObjectiveValue()
                 result["cost"] = cost
                 result["status"] = "success"
+
+                # Extract routes as 0-based customer index lists
+                routes = []
+                for v in range(num_vehicles):
+                    index = routing.Start(v)
+                    route = []
+                    while not routing.IsEnd(index):
+                        node = manager.IndexToNode(index)
+                        if node != depot:
+                            route.append(node)
+                        index = solution.Value(routing.NextVar(index))
+                    if route:
+                        routes.append(route)
+                result["routes"] = routes
             else:
                 result["status"] = "no_solution"
         except Exception as e:

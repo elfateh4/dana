@@ -1,0 +1,16 @@
+{
+  "id": "elfateh/dana-benchmark-results",
+  "title": "DANA Benchmark Results",
+  "code_file": "07_aggregate.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "basic",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

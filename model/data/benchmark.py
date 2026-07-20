@@ -1,8 +1,6 @@
-import json
 import os
 import numpy as np
-import torch
-from typing import List, Tuple, Optional, Dict
+from typing import Dict
 
 INSTANCES_DIR = os.path.join(os.path.dirname(__file__), "instances")
 
@@ -182,95 +180,3 @@ def load_benchmark_instance(set_name: str, filename: str) -> Dict:
     else:
         data = parse_vrplib_instance(path)
     return _add_distance_matrices(data)
-
-
-class DisasterBenchmark:
-    def __init__(
-        self,
-        city_name: str = "cairo",
-        num_locations: int = 100,
-        disaster_prob: float = 0.05,
-        seed: int = 42,
-    ):
-        self.city_name = city_name
-        self.num_locations = num_locations
-        self.disaster_prob = disaster_prob
-        self.rng = np.random.default_rng(seed)
-
-    def generate_instance(self, num_depots: int = 3) -> Dict:
-        from .osm_loader import load_city_data
-
-        try:
-            data = load_city_data(self.city_name)
-        except FileNotFoundError:
-            data = self._synthetic_city()
-
-        points = data["points"]
-        n_total = len(points)
-        indices = self.rng.choice(n_total, size=self.num_locations, replace=False)
-        sorted_idx = np.sort(indices)
-        coords = points[sorted_idx]
-        dist_mat = data["distance"][sorted_idx][:, sorted_idx]
-        dur_mat = data.get("duration", data["distance"])[sorted_idx][:, sorted_idx]
-
-        depot_indices = list(range(num_depots))
-        demand = self.rng.integers(1, 10, size=self.num_locations).astype(float)
-        tw_start = self.rng.uniform(0, 400, size=self.num_locations).astype(float)
-        tw_end = tw_start + self.rng.uniform(30, 120, size=self.num_locations).astype(
-            float
-        )
-        tw_end[:num_depots] = 480.0
-        tw_start[:num_depots] = 0.0
-
-        return {
-            "coords": coords.astype(np.float32),
-            "distance_matrix": dist_mat.astype(np.float32),
-            "duration_matrix": dur_mat.astype(np.float32),
-            "demand": demand,
-            "tw_start": tw_start,
-            "tw_end": tw_end,
-            "depot_indices": depot_indices,
-            "num_depots": num_depots,
-            "num_locations": self.num_locations,
-            "city": self.city_name,
-        }
-
-    def _synthetic_city(self) -> Dict:
-        n = 1000
-        rng = self.rng
-        points = rng.uniform(0, 1, size=(n, 2)).astype(np.float32)
-        dx = points[:, None, 0] - points[None, :, 0]
-        dy = points[:, None, 1] - points[None, :, 1]
-        dist = np.sqrt(dx**2 + dy**2).astype(np.float32)
-        noise = rng.uniform(0.8, 1.2, size=(n, n)).astype(np.float32)
-        np.fill_diagonal(noise, 1.0)
-        dist_asym = dist * noise
-        return {"points": points, "distance": dist_asym, "duration": dist_asym}
-
-
-def generate_disaster_event(
-    instance: Dict, event_type: str = None, rng: Optional[np.random.Generator] = None
-) -> Dict:
-    if rng is None:
-        rng = np.random.default_rng()
-    if event_type is None:
-        event_type = rng.choice(["road_closure", "new_demand", "depot_damage"])
-    event = {"type": event_type}
-    if event_type == "road_closure":
-        i = rng.integers(0, instance["num_locations"])
-        j = rng.integers(0, instance["num_locations"])
-        while j == i:
-            j = rng.integers(0, instance["num_locations"])
-        event["from"] = int(i)
-        event["to"] = int(j)
-        event["original_distance"] = float(instance["distance_matrix"][i, j])
-        event["original_duration"] = float(instance["duration_matrix"][i, j])
-    elif event_type == "new_demand":
-        event["location_idx"] = int(
-            rng.integers(instance["num_depots"], instance["num_locations"])
-        )
-        event["additional_demand"] = float(rng.integers(1, 5))
-    elif event_type == "depot_damage":
-        depot = int(rng.integers(0, instance["num_depots"]))
-        event["depot_idx"] = depot
-    return event

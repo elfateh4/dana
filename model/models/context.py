@@ -15,10 +15,6 @@ class RGCR(nn.Module):
         self.v_proj = nn.Linear(embedding_dim, embedding_dim)
         self.out_proj = nn.Linear(embedding_dim, embedding_dim)
         self.norm = nn.LayerNorm(embedding_dim)
-        self.edge_gate = nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim),
-            nn.Sigmoid(),
-        )
 
     def forward(
         self,
@@ -70,10 +66,6 @@ class DynamicContext(nn.Module):
         super().__init__()
         self.rgcr = RGCR(embedding_dim, num_heads)
         self.tsnr = TSNR(embedding_dim)
-        self.disaster_gate = nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim),
-            nn.Sigmoid(),
-        )
 
     def forward(
         self,

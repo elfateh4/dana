@@ -1,28 +1,10 @@
 import numpy as np
-from scipy.stats import wilcoxon, norm
-from typing import Dict, List, Tuple, Optional
-
-
-def compute_passmark_factor(
-    reference_pm: float = 2277, target_pm: float = 2277
-) -> float:
-    return reference_pm / target_pm
-
-
-def normalize_time(runtime: float, passmark_factor: float) -> float:
-    return runtime * passmark_factor
+from scipy.stats import wilcoxon
+from typing import Dict, List, Optional
 
 
 def compute_gap(cost: float, best_known: float) -> float:
     return 100.0 * (cost - best_known) / best_known
-
-
-def compute_passmark_gap(
-    cost: float, best_known: float, runtime: float, passmark_factor: float
-) -> Tuple[float, float]:
-    gap = compute_gap(cost, best_known)
-    norm_time = normalize_time(runtime, passmark_factor)
-    return gap, norm_time
 
 
 def wilcoxon_signed_rank(

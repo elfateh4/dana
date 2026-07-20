@@ -9,7 +9,6 @@ Provides:
 
 import json
 import os
-import math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -189,27 +188,6 @@ def subsample_city_data(
     }
 
 
-_AVAILABLE_CITIES_CACHE: Optional[Tuple[List[str], List[str]]] = None
-
-
-def _get_available(train_only: bool = False) -> List[str]:
-    """Return list of cities that have cached data files."""
-    global _AVAILABLE_CITIES_CACHE
-
-    if _AVAILABLE_CITIES_CACHE is None:
-        all_cities, _ = get_city_lists()
-        available = []
-        for c in all_cities:
-            try:
-                load_city_data(c, generate_if_missing=False)
-                available.append(c)
-            except FileNotFoundError:
-                pass
-        _AVAILABLE_CITIES_CACHE = (all_cities, available)
-        return available
-    return _AVAILABLE_CITIES_CACHE[1] if train_only else _AVAILABLE_CITIES_CACHE[1]
-
-
 def city_to_tensor_dict(
     city_name: str,
     num_locations: int,
@@ -254,24 +232,6 @@ def city_to_tensor_dict(
         "num_locations": torch.tensor(n),
         "city_name": city_name,
     }
-
-
-def sample_city_batch(
-    cities: List[str],
-    batch_size: int,
-    num_locations: int,
-    num_depots: int = 1,
-    data_root: str = str(DEFAULT_DATA_ROOT),
-) -> List[Dict[str, torch.Tensor]]:
-    """Sample a batch of city instances (one per city used, broadcast to batch)."""
-    batch = []
-    for _ in range(batch_size):
-        city = np.random.choice(cities)
-        tensordict = city_to_tensor_dict(
-            city, num_locations, num_depots, data_root=data_root
-        )
-        batch.append(tensordict)
-    return batch
 
 
 # ---------------------------------------------------------------------------

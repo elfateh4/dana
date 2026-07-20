@@ -1,0 +1,131 @@
+\begin{thebibliography}{10}
+
+\bibitem{ncorl2016}
+Irwan Bello et~al.
+\newblock Neural combinatorial optimization with reinforcement learning.
+\newblock {\em arXiv:1611.09940}, 2016.
+
+\bibitem{routefinder2024}
+Federico Berto et~al.
+\newblock Routefinder: Towards foundation models for vehicle routing problems.
+\newblock {\em ICML}, 2024.
+
+\bibitem{rrnco2026}
+Federico Berto et~al.
+\newblock Neural combinatorial optimization for real-world routing.
+\newblock {\em ICLR}, 2026.
+
+\bibitem{carm2026}
+CARM.
+\newblock Rethinking constraint awareness for efficient state embedding of
+  neural routing solver.
+\newblock {\em arXiv}, 2026.
+
+\bibitem{deepmdv2025}
+DeepMDV.
+\newblock Deepmdv: Global spatial matching for multi-depot vehicle routing
+  problem.
+\newblock {\em arXiv}, 2025.
+
+\bibitem{emergency2026}
+Emergency.
+\newblock Emergency logistics planning through optimizing the multi-trip
+  vehicle routing problem with time windows.
+\newblock {\em EAAI}, 2026.
+
+\bibitem{glop2024}
+GLOP.
+\newblock Glop: Learning global partition and local construction for
+  large-scale routing.
+\newblock {\em AAAI}, 2024.
+
+\bibitem{ccl2026}
+Huang et~al.
+\newblock Chain-of-context learning for dynamic constraint understanding in
+  multi-task vrps.
+\newblock {\em ICLR}, 2026.
+
+\bibitem{invit2024}
+INViT.
+\newblock Invit: A generalizable routing problem solver with invariant nested
+  view transformer.
+\newblock {\em ICML}, 2024.
+
+\bibitem{am2019}
+Wouter Kool, Herke Van~Hoof, and Max Welling.
+\newblock Attention, learn to solve routing problems!
+\newblock {\em ICLR}, 2019.
+
+\bibitem{pomo2020}
+Yeong-Dae Kwon, Jinwoo Choo, Byoungjip Kim, Il~Yoon, Youngjune Min, and
+  Youngjune Gwon.
+\newblock Pomo: Policy optimization with multiple optima for reinforcement
+  learning.
+\newblock {\em NeurIPS}, 2020.
+
+\bibitem{relight2025}
+LightDecoder.
+\newblock Rethinking light decoder-based solvers for vehicle routing problems.
+\newblock {\em ICLR}, 2025.
+
+\bibitem{rlvrp2018}
+Mohammadreza Nazari, Afshin Oroojlooy, Lawrence Snyder, and Martin
+  Tak{\'a}{\v{c}}.
+\newblock Reinforcement learning for solving the vehicle routing problem.
+\newblock {\em NeurIPS}, 2018.
+
+\bibitem{preference2025}
+Preference.
+\newblock Preference optimization for combinatorial optimization problems.
+\newblock {\em ICML}, 2025.
+
+\bibitem{radar2026}
+RADAR.
+\newblock Radar: Learning to route with asymmetry-aware distance
+  representations.
+\newblock {\em ICLR}, 2026.
+
+\bibitem{guidelines2021}
+Rasku et~al.
+\newblock Guidelines for the computational testing of ml approaches to vrps.
+\newblock {\em arXiv:2105.13075}, 2021.
+
+\bibitem{frontierco2026}
+Sun et~al.
+\newblock Frontierco: Real-world and large-scale evaluation of ml solvers for
+  combinatorial optimization.
+\newblock {\em ICLR}, 2026.
+
+\bibitem{survey2024}
+Survey.
+\newblock Neural combinatorial optimization algorithms for solving vehicle
+  routing problems: A comprehensive survey.
+\newblock {\em arXiv}, 2024.
+
+\bibitem{disaster2025}
+Survey.
+\newblock Recent advances in disaster emergency response planning.
+\newblock {\em arXiv}, 2025.
+
+\bibitem{vrpbook}
+Paolo Toth and Daniele Vigo, editors.
+\newblock {\em Vehicle Routing: Problems, Methods, and Applications}.
+\newblock SIAM, 2014.
+
+\bibitem{hgs2021}
+Thibaut Vidal.
+\newblock Hybrid genetic search for the cvrp.
+\newblock {\em arXiv:2105.13075}, 2021.
+
+\bibitem{ptrnets2015}
+Oriol Vinyals, Meire Fortunato, and Navdeep Jaitly.
+\newblock Pointer networks.
+\newblock {\em NeurIPS}, 2015.
+
+\bibitem{neuralkh2021}
+Liang Xin et~al.
+\newblock Neurolkh: Combining deep learning model with lin-kernighan-helsgaun
+  heuristic for the traveling salesman problem.
+\newblock {\em NeurIPS}, 2021.
+
+\end{thebibliography}

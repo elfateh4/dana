@@ -12,20 +12,11 @@ training:
   instances_per_epoch: 40
   learning_rate: 1.0e-3
   weight_decay: 1.0e-6
-  lr_scheduler: none
-  warmup_steps: 10
   max_grad_norm: 1.0
-  entropy_beta: 0.01
 
 pomo:
   num_starts: 2
   num_augmentations: 1
-
-reward:
-  alpha_response: 0.4
-  beta_satisfaction: 0.3
-  gamma_equity: 0.2
-  delta_violation: 0.1
 
 environment:
   max_vehicles: 3
@@ -36,7 +27,6 @@ environment:
 
 data:
   num_locations: 10
-  num_val_locations: 20
 
 evaluation:
   num_runs: 2

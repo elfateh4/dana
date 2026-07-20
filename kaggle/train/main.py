@@ -55,10 +55,6 @@ cfg["model"]["num_encoder_layers"] = 4
 cfg["model"]["num_decoder_layers"] = 2
 cfg["model"]["feedforward_dim"] = 256
 cfg["data"]["num_locations"] = 50
-cfg["model"]["num_encoder_layers"] = 4
-cfg["model"]["num_decoder_layers"] = 2
-cfg["model"]["feedforward_dim"] = 256
-cfg["data"]["num_locations"] = 50
 
 from train import build_policy, POMOTrainer
 

@@ -1,0 +1,16 @@
+{
+  "id": "elfateh/dana-solver-or-tools",
+  "title": "DANA Solver OR-Tools",
+  "code_file": "05_solver_ortools.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "basic",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

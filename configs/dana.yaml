@@ -17,20 +17,11 @@ training:
   instances_per_epoch: 100000
   learning_rate: 1.0e-4
   weight_decay: 1.0e-6
-  lr_scheduler: cosine
-  warmup_steps: 1000
   max_grad_norm: 1.0
-  entropy_beta: 0.01
 
 pomo:
   num_starts: 8
   num_augmentations: 8   # dihedral x8 augmentation (RRNCO testing protocol)
-
-reward:
-  alpha_response: 0.4
-  beta_satisfaction: 0.3
-  gamma_equity: 0.2
-  delta_violation: 0.1
 
 environment:
   max_vehicles: 10
@@ -91,7 +82,6 @@ data:
       - "amsterdam"
 
   num_locations: 100
-  num_val_locations: 200
 
 evaluation:
   num_runs: 10

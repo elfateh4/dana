@@ -11,7 +11,6 @@ Run:
 """
 
 import argparse
-import json
 import os
 import sys
 import numpy as np
@@ -22,7 +21,6 @@ from typing import Dict, List, Optional
 # Paths
 # ---------------------------------------------------------------------------
 DEFAULT_CACHE = Path(__file__).parent / "osm_cache"
-CITIES_JSON = Path(__file__).parent / "../../configs/dana.yaml"
 
 # City list from our config
 TRAIN_CITIES = [
