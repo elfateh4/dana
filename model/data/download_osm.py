@@ -86,20 +86,141 @@ def _normalize_city_name(name: str) -> str:
     return name.strip().replace(" ", "_").replace("-", "_").lower()
 
 
+EARTH_RADIUS_M = 6_371_000.0
+REGION_HALF_SIZE_M = 1500.0  # 3x3 km standardized area, per RRNCO Sec. 4.2
+EXCLUDED_HIGHWAYS = {"motorway", "motorway_link", "trunk", "trunk_link"}
+WATER_BUFFER_DEG = 0.0003  # ~30 m buffer around water features
+
+
+def _haversine_bbox(lat: float, lon: float, half_size_m: float):
+    """(north, south, east, west) bounds of a square centered on (lat, lon),
+    sized via the Haversine/spherical relation (Eq. 3) so the physical extent
+    is identical at every latitude."""
+    dlat = np.rad2deg(half_size_m / EARTH_RADIUS_M)
+    dlon = np.rad2deg(half_size_m / (EARTH_RADIUS_M * np.cos(np.deg2rad(lat))))
+    return lat + dlat, lat - dlat, lon + dlon, lon - dlon
+
+
+def _filter_edges(edges):
+    """Drop bridges, tunnels, and highways (paper: focus on accessible
+    street-level locations)."""
+
+    def is_excluded(row) -> bool:
+        hw = row.get("highway")
+        hws = hw if isinstance(hw, list) else [hw]
+        if any(h in EXCLUDED_HIGHWAYS for h in hws):
+            return True
+        for tag in ("bridge", "tunnel"):
+            val = row.get(tag)
+            vals = val if isinstance(val, list) else [val]
+            if any(v not in (None, "no", False) and v == v for v in vals):
+                return True
+        return False
+
+    keep = ~edges.apply(is_excluded, axis=1)
+    return edges[keep]
+
+
+def _water_union(north, south, east, west):
+    """Buffered union of water features inside the bbox (or None)."""
+    import osmnx as ox
+
+    try:
+        tags = {"natural": "water", "waterway": True}
+        try:  # osmnx >= 2.0
+            water = ox.features_from_bbox(
+                bbox=(west, south, east, north), tags=tags
+            )
+        except TypeError:  # osmnx 1.x positional order
+            water = ox.features_from_bbox(north, south, east, west, tags=tags)
+        if len(water) == 0:
+            return None
+        return water.geometry.buffer(WATER_BUFFER_DEG).union_all()
+    except Exception:
+        return None
+
+
+def _sample_points_on_edges(edges, num_samples: int, water, rng) -> np.ndarray:
+    """Length-weighted random sampling of points along road segments
+    (paper: segments weighted by length for uniform spatial distribution),
+    rejecting points inside water buffer zones. Returns (N, 2) lat/lon."""
+    from shapely.geometry import Point
+
+    lengths = edges["length"].to_numpy(dtype=np.float64)
+    weights = lengths / lengths.sum()
+    geoms = edges.geometry.values
+    points = []
+    max_tries = num_samples * 10
+    tries = 0
+    while len(points) < num_samples and tries < max_tries:
+        tries += 1
+        geom = geoms[rng.choice(len(geoms), p=weights)]
+        pt = geom.interpolate(rng.uniform(0, 1), normalized=True)
+        if water is not None and water.contains(Point(pt.x, pt.y)):
+            continue
+        points.append((pt.y, pt.x))  # (lat, lon)
+    return np.array(points, dtype=np.float32)
+
+
+def _osrm_table(
+    points: np.ndarray, base_url: str, chunk: int = 250
+) -> Optional[tuple]:
+    """Query a (local) OSRM table service for real asymmetric distance and
+    duration matrices (paper Sec. 4.2). Returns (distance, duration) in
+    meters/seconds, or None on failure."""
+    import requests
+
+    N = len(points)
+    coord_str = ";".join(f"{lon:.6f},{lat:.6f}" for lat, lon in points)
+    dist = np.zeros((N, N), dtype=np.float32)
+    dur = np.zeros((N, N), dtype=np.float32)
+    try:
+        for i0 in range(0, N, chunk):
+            src = list(range(i0, min(i0 + chunk, N)))
+            for j0 in range(0, N, chunk):
+                dst = list(range(j0, min(j0 + chunk, N)))
+                url = (
+                    f"{base_url.rstrip('/')}/table/v1/driving/{coord_str}"
+                    f"?sources={';'.join(map(str, src))}"
+                    f"&destinations={';'.join(map(str, dst))}"
+                    f"&annotations=distance,duration"
+                )
+                resp = requests.get(url, timeout=120)
+                resp.raise_for_status()
+                body = resp.json()
+                if body.get("code") != "Ok":
+                    raise RuntimeError(f"OSRM error: {body.get('code')}")
+                d = np.array(body["distances"], dtype=np.float32)
+                t = np.array(body["durations"], dtype=np.float32)
+                dist[i0 : i0 + len(src), j0 : j0 + len(dst)] = np.nan_to_num(d)
+                dur[i0 : i0 + len(src), j0 : j0 + len(dst)] = np.nan_to_num(t)
+        return dist, dur
+    except Exception as e:
+        print(f"  [OSRM] table query failed ({e}) — falling back to haversine")
+        return None
+
+
 def generate_city_osmnx(
     city_name: str,
     num_samples: int = 2000,
     cache_dir: Optional[Path] = None,
+    osrm_url: Optional[str] = None,
 ) -> Dict[str, np.ndarray]:
     """Generate city routing data from OpenStreetMap via OSMnx.
 
+    Follows RRNCO Sec. 4.2: a Haversine-standardized 3x3 km region around the
+    city center; bridges/tunnels/highways excluded; water features buffered
+    out; points sampled along road segments weighted by length. If an OSRM
+    server is available (``osrm_url`` or the OSRM_URL env var), real
+    asymmetric distance/duration matrices are fetched from its table service;
+    otherwise a haversine approximation is used as fallback.
+
     Produces:
-        points:      (N, 2) float32 — lat/lon of sampled road nodes
+        points:      (N, 2) float32 — lat/lon of sampled road points
         distance:    (N, N) float32 — driving-distance matrix (meters)
         duration:    (N, N) float32 — driving-time matrix (seconds)
     """
     import osmnx as ox
-    import geopandas as gpd
 
     name_key = _normalize_city_name(city_name)
     cache_dir = cache_dir or DEFAULT_CACHE
@@ -114,38 +235,52 @@ def generate_city_osmnx(
 
     print(f"  [OSMnx] Downloading road network for {city_name}...")
     try:
-        G = ox.graph_from_place(city_name, network_type="drive", simplify=True)
+        center_lat, center_lon = ox.geocode(city_name)
+        north, south, east, west = _haversine_bbox(
+            center_lat, center_lon, REGION_HALF_SIZE_M
+        )
+        try:  # osmnx >= 2.0
+            G = ox.graph_from_bbox(
+                bbox=(west, south, east, north), network_type="drive", simplify=True
+            )
+        except TypeError:  # osmnx 1.x positional order
+            G = ox.graph_from_bbox(
+                north, south, east, west, network_type="drive", simplify=True
+            )
     except Exception as e:
         print(f"  [ERROR] Could not fetch {city_name}: {e}")
         raise
 
-    # Get node coordinates
-    nodes = ox.graph_to_gdfs(G, nodes=True, edges=False)
-    coords = np.array(
-        [(nodes.loc[n, "y"], nodes.loc[n, "x"]) for n in G.nodes()], dtype=np.float32
-    )
+    # Street-level road segments only (no bridges/tunnels/highways)
+    edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
+    filtered = _filter_edges(edges)
+    if len(filtered) < 10:
+        print(f"  [WARN] {city_name}: filtering left {len(filtered)} edges — keeping all")
+        filtered = edges
+
+    water = _water_union(north, south, east, west)
+    rng = np.random.default_rng(42)
+    coords = _sample_points_on_edges(filtered, num_samples, water, rng)
 
     if len(coords) < 50:
-        print(f"  [WARN] {city_name}: only {len(coords)} nodes — too small")
-
-    # Subsample if too large
-    if len(coords) > num_samples:
-        rng = np.random.default_rng(42)
-        idx = rng.choice(len(coords), size=num_samples, replace=False)
-        coords = coords[idx]
+        print(f"  [WARN] {city_name}: only {len(coords)} points — too small")
 
     N = len(coords)
-    # Compute Euclidean distance as fallback (OSMnx routing is slow for all-pairs)
-    dx = coords[:, None, 0] - coords[None, :, 0]
-    dy = coords[:, None, 1] - coords[None, :, 1]
-    # Convert degree differences to approximate meters
-    lat_rad = np.deg2rad(coords[:, 0:1])
-    dx_m = dx * 111320.0 * np.cos(lat_rad)  # meters
-    dy_m = dy * 111320.0  # meters
-    dist = np.sqrt(dx_m**2 + dy_m**2).astype(np.float32)
-
-    # Duration: assume 30 km/h average urban speed
-    duration = (dist / 8.333).astype(np.float32)  # 30 km/h = 8.333 m/s
+    # Real routing matrices via OSRM table service, if available
+    osrm_url = osrm_url or os.environ.get("OSRM_URL")
+    matrices = _osrm_table(coords, osrm_url) if osrm_url else None
+    if matrices is not None:
+        dist, duration = matrices
+    else:
+        # Haversine approximation fallback (symmetric)
+        dx = coords[:, None, 0] - coords[None, :, 0]
+        dy = coords[:, None, 1] - coords[None, :, 1]
+        lat_rad = np.deg2rad(coords[:, 0:1])
+        dx_m = dx * 111320.0  # lat degrees -> meters
+        dy_m = dy * 111320.0 * np.cos(lat_rad)  # lon degrees -> meters
+        dist = np.sqrt(dx_m**2 + dy_m**2).astype(np.float32)
+        # Duration: assume 30 km/h average urban speed
+        duration = (dist / 8.333).astype(np.float32)  # 30 km/h = 8.333 m/s
 
     data = {"points": coords, "distance": dist, "duration": duration}
 
@@ -248,6 +383,13 @@ def main():
         default=2000,
         help="Number of road node samples per city (OSMnx only)",
     )
+    parser.add_argument(
+        "--osrm",
+        type=str,
+        default=None,
+        help="OSRM server URL for real distance/duration matrices "
+        "(e.g. http://localhost:5000; also read from OSRM_URL env var)",
+    )
     args = parser.parse_args()
 
     cache_dir = Path(args.cache)
@@ -270,7 +412,12 @@ def main():
         success = 0
         for city in cities:
             try:
-                generate_city_osmnx(city, num_samples=args.samples, cache_dir=cache_dir)
+                generate_city_osmnx(
+                    city,
+                    num_samples=args.samples,
+                    cache_dir=cache_dir,
+                    osrm_url=args.osrm,
+                )
                 success += 1
             except Exception as e:
                 print(f"  [FAIL] {city}: {e}")
